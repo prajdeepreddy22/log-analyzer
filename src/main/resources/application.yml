@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: log-analyzer
+
+  # ==================== DATABASE ====================
+  datasource:
+    url: jdbc:mysql://localhost:3306/log_analyzer?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: root
+    password: ${DB_PASSWORD:Pabbathi@22}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: LogAnalyzerHikariPool
+
+  # ==================== JPA ====================
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  # ==================== FLYWAY ====================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+
+  # ==================== JACKSON ====================
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# ==================== SERVER ====================
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+# ==================== ACTUATOR ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    export:
+      prometheus:
+        enabled: true
+
+# ==================== LOGGING ====================
+logging:
+  level:
+    root: INFO
+    com.loganalyzer: DEBUG
+    org.hibernate.SQL: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# ==================== APP CUSTOM CONFIG ====================
+app:
+  jwt:
+    secret: ${JWT_SECRET:mySecretKey404GenAILogAnalyzerProjectSecretKey}
+    expiration: 86400000
+  ai:
+    max-logs: 100
+    max-chars: 12000
+  upload:
+    max-file-size: 10MB
+    allowed-types: text/plain,application/octet-stream
+  rate-limit:
+    max-requests: 5
+    window-minutes: 1
