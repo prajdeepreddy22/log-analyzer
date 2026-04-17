@@ -19,8 +19,6 @@ public class LogParserService {
 
     private final HashKeyService hashKeyService;
 
-    // ==================== REGEX ====================
-
     private static final Pattern FORMAT1 = Pattern.compile(
             "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})\\s+" +
                     "(DEBUG|INFO|WARN|ERROR|FATAL)\\s+\\[([^\\]]+)]\\s+(.+)"
@@ -36,48 +34,43 @@ public class LogParserService {
             "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"
     );
 
-    // ==================== DATE FORMATTERS ====================
-
     private static final DateTimeFormatter FORMATTER1 =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private static final DateTimeFormatter FORMATTER2 =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
-    // ==================== MAIN PARSE ====================
-
     public List<ParsedLogEntry> parse(InputStream inputStream) throws IOException {
 
         List<ParsedLogEntry> results = new ArrayList<>();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+        try (BufferedReader reader =
+                     new BufferedReader(new InputStreamReader(inputStream))) {
 
-        List<String> currentBlock = new ArrayList<>();
-        long sequence = 1;
+            List<String> currentBlock = new ArrayList<>();
+            long sequence = 1;
 
-        String line;
+            String line;
 
-        while ((line = reader.readLine()) != null) {
+            while ((line = reader.readLine()) != null) {
 
-            if (line.isBlank()) continue;
+                if (line.isBlank()) continue;
 
-            if (isNewLogEntry(line) && !currentBlock.isEmpty()) {
-                results.add(parseEntry(currentBlock, sequence++));
-                currentBlock.clear();
+                if (isNewLogEntry(line) && !currentBlock.isEmpty()) {
+                    results.add(parseEntry(currentBlock, sequence++));
+                    currentBlock.clear();
+                }
+
+                currentBlock.add(line);
             }
 
-            currentBlock.add(line);
-        }
-
-        // last block
-        if (!currentBlock.isEmpty()) {
-            results.add(parseEntry(currentBlock, sequence));
+            if (!currentBlock.isEmpty()) {
+                results.add(parseEntry(currentBlock, sequence));
+            }
         }
 
         return results;
     }
-
-    // ==================== PARSE SINGLE ENTRY ====================
 
     private ParsedLogEntry parseEntry(List<String> lines, long sequence) {
 
@@ -89,44 +82,29 @@ public class LogParserService {
 
         ParsedLogEntry entry = tryParseFormats(firstLine, sequence);
 
-        // Full message (including stack trace)
         String fullMessage = firstLine +
                 (stackLines.isEmpty() ? "" : "\n" + String.join("\n", stackLines));
 
         entry.setMessage(fullMessage);
         entry.setHasStackTrace(!stackLines.isEmpty());
 
-        // Compute hash
         entry.setHashKey(hashKeyService.computeHash(entry));
 
         return entry;
     }
 
-    // ==================== FORMAT DETECTION ====================
-
     private ParsedLogEntry tryParseFormats(String firstLine, long sequence) {
 
         Matcher m1 = FORMAT1.matcher(firstLine);
         if (m1.find()) {
-            return buildEntry(
-                    m1.group(1),
-                    m1.group(2),
-                    m1.group(3),
-                    sequence
-            );
+            return buildEntry(m1.group(1), m1.group(2), m1.group(3), sequence);
         }
 
         Matcher m2 = FORMAT2.matcher(firstLine);
         if (m2.find()) {
-            return buildEntry(
-                    m2.group(1),
-                    m2.group(2),
-                    m2.group(3),
-                    sequence
-            );
+            return buildEntry(m2.group(1), m2.group(2), m2.group(3), sequence);
         }
 
-        // Fallback
         return ParsedLogEntry.builder()
                 .timestamp(null)
                 .level(LogLevel.UNKNOWN)
@@ -141,7 +119,6 @@ public class LogParserService {
             String service,
             long sequence
     ) {
-
         return ParsedLogEntry.builder()
                 .timestamp(parseTimestamp(timestampStr))
                 .level(LogLevel.fromString(levelStr))
@@ -150,14 +127,6 @@ public class LogParserService {
                 .build();
     }
 
-    // ==================== HELPERS ====================
-
-    /**
-     * Improved logic:
-     * - Timestamp → NEW entry
-     * - Stack trace → CONTINUE current entry
-     * - Anything else → NEW entry (fallback safe handling)
-     */
     private boolean isNewLogEntry(String line) {
 
         if (TIMESTAMP_PATTERN.matcher(line).find()) {
@@ -171,9 +140,6 @@ public class LogParserService {
         return true;
     }
 
-    /**
-     * Detects stack trace lines
-     */
     private boolean isStackTraceLine(String line) {
         return line.startsWith("\tat ") ||
                 line.startsWith("Caused by:") ||

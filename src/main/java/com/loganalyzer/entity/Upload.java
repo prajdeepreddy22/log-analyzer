@@ -1,10 +1,7 @@
 package com.loganalyzer.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -12,7 +9,9 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "uploads")
-@Data
+@Getter
+@Setter
+@ToString(exclude = {"user"}) // ✅ Prevent lazy loading issues
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -62,8 +61,4 @@ public class Upload {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
-
-    public enum UploadStatus {
-        UPLOADED, PROCESSING, COMPLETED, FAILED
-    }
 }
