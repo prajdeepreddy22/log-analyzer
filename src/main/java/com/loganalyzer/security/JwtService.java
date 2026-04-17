@@ -2,11 +2,8 @@ package com.loganalyzer.security;
 
 import com.loganalyzer.config.AppProperties;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +11,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.security.Key;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,8 +23,6 @@ import java.util.function.Function;
 public class JwtService {
 
     private final AppProperties appProperties;
-
-    // ==================== TOKEN GENERATION ====================
 
     public String generateToken(UserDetails userDetails, Long userId) {
         Map<String, Object> extraClaims = new HashMap<>();
@@ -46,34 +42,11 @@ public class JwtService {
                 .compact();
     }
 
-    // ==================== TOKEN VALIDATION ====================
-
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
         return username.equals(userDetails.getUsername())
                 && !isTokenExpired(token);
     }
-
-    public boolean validateToken(String token) {
-        try {
-            Jwts.parserBuilder()
-                    .setSigningKey(getSigningKey())
-                    .build()
-                    .parseClaimsJws(token);
-            return true;
-        } catch (MalformedJwtException e) {
-            log.error("Invalid JWT token: {}", e.getMessage());
-        } catch (ExpiredJwtException e) {
-            log.error("JWT token is expired: {}", e.getMessage());
-        } catch (UnsupportedJwtException e) {
-            log.error("JWT token is unsupported: {}", e.getMessage());
-        } catch (IllegalArgumentException e) {
-            log.error("JWT claims string is empty: {}", e.getMessage());
-        }
-        return false;
-    }
-
-    // ==================== CLAIMS EXTRACTION ====================
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -106,11 +79,9 @@ public class JwtService {
         return extractClaim(token, Claims::getExpiration);
     }
 
-    // ==================== KEY ====================
-
     private Key getSigningKey() {
-        byte[] keyBytes = appProperties.getJwt()
-                .getSecret().getBytes();
+        byte[] keyBytes = Base64.getDecoder()
+                .decode(appProperties.getJwt().getSecret());
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }

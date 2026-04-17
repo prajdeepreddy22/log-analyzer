@@ -32,30 +32,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         final String authHeader = request.getHeader("Authorization");
-        final String jwt;
-        final String username;
 
-        // Skip if no Authorization header or not Bearer token
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Extract token
-        jwt = authHeader.substring(7);
+        final String jwt = authHeader.substring(7);
 
         try {
-            username = jwtService.extractUsername(jwt);
+            String username = jwtService.extractUsername(jwt);
 
-            // If username found and no existing authentication
             if (username != null &&
-                    SecurityContextHolder.getContext()
-                            .getAuthentication() == null) {
+                    SecurityContextHolder.getContext().getAuthentication() == null) {
 
-                UserDetails userDetails = userDetailsService
-                        .loadUserByUsername(username);
+                UserDetails userDetails =
+                        userDetailsService.loadUserByUsername(username);
 
-                // Validate token
                 if (jwtService.isTokenValid(jwt, userDetails)) {
 
                     UsernamePasswordAuthenticationToken authToken =
@@ -75,7 +68,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 }
             }
         } catch (Exception e) {
-            log.error("JWT Authentication failed: {}", e.getMessage());
+            log.error("JWT Authentication failed", e);
         }
 
         filterChain.doFilter(request, response);

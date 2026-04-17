@@ -96,7 +96,6 @@ public class AuthController {
 
         log.info("Login request for username: {}", request.getUsername());
 
-        // Authenticate
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         request.getUsername(),
@@ -104,17 +103,12 @@ public class AuthController {
                 )
         );
 
-        UserDetails userDetails =
-                (UserDetails) authentication.getPrincipal();
+        UserDetails userDetails = (UserDetails) authentication.getPrincipal();
 
-        // Get user from DB for ID and email
         User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow();
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Generate token
         String token = jwtService.generateToken(userDetails, user.getId());
-
-        log.info("User logged in successfully: {}", request.getUsername());
 
         return ResponseEntity.ok(AuthResponse.builder()
                 .token(token)
