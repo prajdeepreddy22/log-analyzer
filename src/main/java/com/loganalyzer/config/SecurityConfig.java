@@ -28,23 +28,21 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
-    private final PasswordEncoder passwordEncoder; // ✅ Inject from AppConfig
+    private final PasswordEncoder passwordEncoder;
 
     private static final String[] PUBLIC_URLS = {
 
-            // Auth
             "/auth/register",
             "/auth/login",
 
-            // Swagger
+            // Swagger (without context path)
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
 
             // Actuator
-            "/actuator/health",
+            "/actuator/**",
 
-            // Error
             "/error"
     };
 
@@ -57,6 +55,10 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_URLS).permitAll()
+
+                        // ✅ IMPORTANT (with context-path /api)
+                        .requestMatchers("/api/v3/api-docs/**", "/api/swagger-ui/**").permitAll()
+
                         .anyRequest().authenticated()
                 )
 
@@ -85,11 +87,10 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider =
-                new DaoAuthenticationProvider();
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
 
         provider.setUserDetailsService(userDetailsService);
-        provider.setPasswordEncoder(passwordEncoder); // ✅ use injected bean
+        provider.setPasswordEncoder(passwordEncoder);
 
         return provider;
     }
