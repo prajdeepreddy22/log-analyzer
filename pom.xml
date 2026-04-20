@@ -6,11 +6,11 @@
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- ✅ LATEST STABLE SPRING BOOT -->
+    <!-- SPRING BOOT -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.2</version>
+        <version>3.3.12</version>
         <relativePath/>
     </parent>
 
@@ -23,6 +23,9 @@
     <properties>
         <java.version>21</java.version>
         <jjwt.version>0.11.5</jjwt.version>
+        <!-- ✅ CVE fixes: override vulnerable transitive dependency versions -->
+        <logback.version>1.5.18</logback.version>
+        <tomcat.version>10.1.39</tomcat.version>
     </properties>
 
     <dependencies>
@@ -92,7 +95,7 @@
             <artifactId>flyway-mysql</artifactId>
         </dependency>
 
-        <!-- ==================== OBSERVABILITY ==================== -->
+        <!-- ==================== ACTUATOR ==================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -114,7 +117,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <scope>provided</scope>
+            <optional>true</optional>
         </dependency>
 
         <!-- ==================== TEST ==================== -->
@@ -134,7 +137,7 @@
     <build>
         <plugins>
 
-            <!-- COMPILER -->
+            <!-- ✅ COMPILER — Lombok annotation processor wired correctly -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -145,6 +148,7 @@
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
+                            <version>1.18.32</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
@@ -155,6 +159,7 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!-- ✅ Exclude Lombok from final JAR (it's compile-time only) -->
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -162,13 +167,6 @@
                         </exclude>
                     </excludes>
                 </configuration>
-            </plugin>
-
-            <!-- ✅ OPTIONAL: SECURITY SCAN -->
-            <plugin>
-                <groupId>org.owasp</groupId>
-                <artifactId>dependency-check-maven</artifactId>
-                <version>9.0.9</version>
             </plugin>
 
         </plugins>

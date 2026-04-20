@@ -26,6 +26,11 @@ public class ParsedLogEntry {
     // Full message including stack trace
     private String message;
 
+    private String rawLog;
+
+    // ✅ NEW
+    private String exceptionType;
+
     // Hash key (computed later)
     private String hashKey;
 

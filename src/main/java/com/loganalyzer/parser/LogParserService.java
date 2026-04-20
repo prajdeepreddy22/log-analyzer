@@ -128,16 +128,10 @@ public class LogParserService {
     }
 
     private boolean isNewLogEntry(String line) {
-
         if (TIMESTAMP_PATTERN.matcher(line).find()) {
             return true;
         }
-
-        if (isStackTraceLine(line)) {
-            return false;
-        }
-
-        return true;
+        return !isStackTraceLine(line);
     }
 
     private boolean isStackTraceLine(String line) {
