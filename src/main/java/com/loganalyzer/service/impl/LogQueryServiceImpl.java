@@ -2,65 +2,85 @@ package com.loganalyzer.service.impl;
 
 import com.loganalyzer.dto.request.LogFilterRequest;
 import com.loganalyzer.dto.response.LogResponse;
+import com.loganalyzer.dto.response.LogStatsResponse;
+import com.loganalyzer.dto.response.PageResponse;
 import com.loganalyzer.entity.Log;
+import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.repository.LogRepository;
+import com.loganalyzer.repository.UploadRepository;
 import com.loganalyzer.specification.LogSpecification;
 import com.loganalyzer.service.LogQueryService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LogQueryServiceImpl implements LogQueryService {
 
     private final LogRepository logRepository;
+    private final UploadRepository uploadRepository;
+
+    private static final List<String> ALLOWED_SORT_FIELDS =
+            List.of("logSequence", "logTimestamp", "level", "id");
 
     @Override
-    public Page<LogResponse> searchLogs(
+    public PageResponse<LogResponse> getLogs(
             String uploadId,
+            Long userId,
+            Pageable pageable
+    ) {
+        validateUpload(uploadId, userId);
+
+        Page<Log> logs = logRepository.findByUploadUploadId(uploadId, pageable);
+
+        return PageResponse.from(logs.map(this::mapToResponse));
+    }
+
+    @Override
+    public PageResponse<LogResponse> searchLogs(
+            String uploadId,
+            Long userId,
             LogFilterRequest request,
             Pageable pageable
     ) {
+        validateUpload(uploadId, userId);
 
-        Specification<Log> spec = Specification.where(
-                LogSpecification.hasUploadId(uploadId)
-        );
+        Specification<Log> spec = LogSpecification.build(uploadId, request);
 
-        if (request.getLevel() != null) {
-            spec = spec.and(LogSpecification.hasLevel(request.getLevel()));
-        }
+        Page<Log> logs = logRepository.findAll(spec, pageable);
 
-        if (request.getServiceName() != null && !request.getServiceName().isBlank()) {
-            spec = spec.and(LogSpecification.hasServiceName(request.getServiceName()));
-        }
+        return PageResponse.from(logs.map(this::mapToResponse));
+    }
 
-        if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
-            spec = spec.and(LogSpecification.containsKeyword(request.getKeyword()));
-        }
+    @Override
+    public LogStatsResponse getLogStats(String uploadId, Long userId) {
 
-        spec = spec.and(
-                LogSpecification.betweenDates(
-                        request.getStartDate(),
-                        request.getEndDate()
-                )
-        );
+        validateUpload(uploadId, userId);
 
-        Pageable sortedPageable = PageRequest.of(
-                pageable.getPageNumber(),
-                pageable.getPageSize(),
-                Sort.by("logSequence").ascending()
-        );
+        return LogStatsResponse.builder()
+                .totalLogs(logRepository.countByUploadUploadId(uploadId))
+                .errorCount(logRepository.countByUploadUploadIdAndLevel(uploadId, Log.LogLevel.ERROR))
+                .warnCount(logRepository.countByUploadUploadIdAndLevel(uploadId, Log.LogLevel.WARN))
+                .infoCount(logRepository.countByUploadUploadIdAndLevel(uploadId, Log.LogLevel.INFO))
+                .debugCount(logRepository.countByUploadUploadIdAndLevel(uploadId, Log.LogLevel.DEBUG))
+                .build();
+    }
 
-        Page<Log> logs = logRepository.findAll(spec, sortedPageable);
-
-        return logs.map(this::mapToResponse);
+    private void validateUpload(String uploadId, Long userId) {
+        uploadRepository.findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));
     }
 
     private LogResponse mapToResponse(Log log) {
         return LogResponse.builder()
                 .id(log.getId())
+                .logSequence(log.getLogSequence())
                 .level(log.getLevel() != null ? log.getLevel().name() : null)
                 .message(log.getMessage())
                 .serviceName(log.getServiceName())

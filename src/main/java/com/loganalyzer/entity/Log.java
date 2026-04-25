@@ -7,10 +7,15 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "logs")
+@Table(name = "logs", indexes = {
+        @Index(name = "idx_upload_id", columnList = "upload_id"),
+        @Index(name = "idx_log_timestamp", columnList = "log_timestamp"),
+        @Index(name = "idx_level", columnList = "level"),
+        @Index(name = "idx_service", columnList = "service_name")
+})
 @Getter
 @Setter
-@ToString(exclude = {"upload"}) // ✅ Prevent lazy loading issues
+@ToString(exclude = {"upload"})
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,10 +25,12 @@ public class Log {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // ================== RELATION ==================
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "upload_id", nullable = false)
     private Upload upload;
 
+    // ================== CORE LOG DATA ==================
     @Column(name = "log_timestamp")
     private LocalDateTime logTimestamp;
 
@@ -55,10 +62,13 @@ public class Log {
     @Column(name = "hash_key", length = 64)
     private String hashKey;
 
+
+    // ================== AUDIT ==================
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    // ================== ENUMS ==================
     public enum LogLevel {
         DEBUG, INFO, WARN, ERROR, FATAL, UNKNOWN
     }
