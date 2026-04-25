@@ -11,9 +11,13 @@ public class LogFilterRequest {
     private LogLevel level;
     private String serviceName;
     private String keyword;
+
     private LocalDateTime startDate;
     private LocalDateTime endDate;
 
     private int page = 0;
     private int size = 10;
+
+    private String sortBy = "logSequence";
+    private String sortDir = "asc";
 }

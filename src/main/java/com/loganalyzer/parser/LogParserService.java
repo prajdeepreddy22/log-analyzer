@@ -30,9 +30,8 @@ public class LogParserService {
                     "\\[[^\\]]+]\\s+([\\w.$]+)\\s*:\\s*(.+)"
     );
 
-    private static final Pattern TIMESTAMP_PATTERN = Pattern.compile(
-            "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"
-    );
+    private static final Pattern TIMESTAMP_PATTERN =
+            Pattern.compile("^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
 
     private static final DateTimeFormatter FORMATTER1 =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -40,6 +39,7 @@ public class LogParserService {
     private static final DateTimeFormatter FORMATTER2 =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
+    // ================= MAIN PARSE =================
     public List<ParsedLogEntry> parse(InputStream inputStream) throws IOException {
 
         List<ParsedLogEntry> results = new ArrayList<>();
@@ -72,6 +72,7 @@ public class LogParserService {
         return results;
     }
 
+    // ================= ENTRY PARSER =================
     private ParsedLogEntry parseEntry(List<String> lines, long sequence) {
 
         String firstLine = lines.get(0);
@@ -82,64 +83,77 @@ public class LogParserService {
 
         ParsedLogEntry entry = tryParseFormats(firstLine, sequence);
 
-        String fullMessage = firstLine +
-                (stackLines.isEmpty() ? "" : "\n" + String.join("\n", stackLines));
-
-        entry.setMessage(fullMessage);
+        entry.setRawLog(String.join("\n", lines));
         entry.setHasStackTrace(!stackLines.isEmpty());
 
+        // IMPORTANT: hash based on clean structured entry
         entry.setHashKey(hashKeyService.computeHash(entry));
 
         return entry;
     }
 
+    // ================= FORMAT PARSING =================
     private ParsedLogEntry tryParseFormats(String firstLine, long sequence) {
 
         Matcher m1 = FORMAT1.matcher(firstLine);
         if (m1.find()) {
-            return buildEntry(m1.group(1), m1.group(2), m1.group(3), sequence);
+            return buildEntry(
+                    m1.group(1),
+                    m1.group(2),
+                    m1.group(3),
+                    m1.group(4),
+                    sequence
+            );
         }
 
         Matcher m2 = FORMAT2.matcher(firstLine);
         if (m2.find()) {
-            return buildEntry(m2.group(1), m2.group(2), m2.group(3), sequence);
+            return buildEntry(
+                    m2.group(1),
+                    m2.group(2),
+                    m2.group(3),
+                    m2.group(4),
+                    sequence
+            );
         }
 
         return ParsedLogEntry.builder()
                 .timestamp(null)
                 .level(LogLevel.UNKNOWN)
                 .logSequence(sequence)
-                .serviceName(null)
+                .serviceName("UNKNOWN")
+                .message(firstLine)
                 .build();
     }
 
+    // ================= CLEAN BUILDER =================
     private ParsedLogEntry buildEntry(
             String timestampStr,
             String levelStr,
             String service,
+            String message,
             long sequence
     ) {
         return ParsedLogEntry.builder()
                 .timestamp(parseTimestamp(timestampStr))
                 .level(LogLevel.fromString(levelStr))
                 .serviceName(service)
+                .message(message)   // ✅ CLEAN MESSAGE ONLY
                 .logSequence(sequence)
                 .build();
     }
 
+    // ================= UTIL =================
     private boolean isNewLogEntry(String line) {
-        if (TIMESTAMP_PATTERN.matcher(line).find()) {
-            return true;
-        }
-        return !isStackTraceLine(line);
+        return TIMESTAMP_PATTERN.matcher(line).find()
+                || !isStackTraceLine(line);
     }
 
     private boolean isStackTraceLine(String line) {
-        return line.startsWith("\tat ") ||
-                line.startsWith("Caused by:") ||
-                line.startsWith("\t...") ||
-                line.matches("^\\s+at .+") ||
-                line.matches("^\\s+\\.\\.\\. \\d+ more");
+        return line.startsWith("\tat ")
+                || line.startsWith("Caused by:")
+                || line.matches("^\\s+at .+")
+                || line.matches("^\\s+\\.\\.\\. \\d+ more");
     }
 
     private LocalDateTime parseTimestamp(String ts) {

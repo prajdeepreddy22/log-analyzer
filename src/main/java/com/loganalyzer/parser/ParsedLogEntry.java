@@ -13,28 +13,26 @@ public class ParsedLogEntry {
     // Parsed timestamp (null if not parseable)
     private LocalDateTime timestamp;
 
-    // Sequence to maintain order of logs
+    // Sequence to maintain order
     private long logSequence;
 
-    // Log level (default UNKNOWN)
+    // Log level
     @Builder.Default
     private LogLevel level = LogLevel.UNKNOWN;
 
-    // Service / class name (can be null)
+    // Service name
     private String serviceName;
 
-    // Full message including stack trace
+    // CLEAN message only (NO full log line)
     private String message;
 
+    // Raw line (optional for debugging/audit)
     private String rawLog;
 
-    // ✅ NEW
-    private String exceptionType;
-
-    // Hash key (computed later)
+    // Hash key for deduplication
     private String hashKey;
 
-    // Indicates multi-line stack trace
+    // Stack trace flag
     @Builder.Default
     private boolean hasStackTrace = false;
 }

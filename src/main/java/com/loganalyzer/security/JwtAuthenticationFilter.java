@@ -42,6 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             String username = jwtService.extractUsername(jwt);
+            Long userId = jwtService.extractUserId(jwt); // ✅ IMPORTANT
 
             if (username != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
@@ -63,6 +64,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                     SecurityContextHolder.getContext()
                             .setAuthentication(authToken);
+
+                    // ✅ CRITICAL FOR USER ISOLATION
+                    if (userId != null) {
+                        request.setAttribute("userId", userId);
+                    }
 
                     log.debug("Authenticated user: {}", username);
                 }

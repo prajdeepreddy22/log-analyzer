@@ -11,9 +11,11 @@ public class LogResponse {
 
     private Long id;
 
+    private Long logSequence;
+
     private String level;
 
-    private String message; // clean message only
+    private String message;
 
     private String serviceName;
 
@@ -24,6 +26,4 @@ public class LogResponse {
     private String source;
 
     private LocalDateTime logTimestamp;
-
-
 }
