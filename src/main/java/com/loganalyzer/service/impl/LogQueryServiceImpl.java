@@ -72,6 +72,25 @@ public class LogQueryServiceImpl implements LogQueryService {
                 .build();
     }
 
+    // FOR AI
+    public List<Log> getLogsForAnalysis(String uploadId, Long userId) {
+
+        validateUpload(uploadId, userId); // SECURITY CHECK
+
+        List<Log.LogLevel> levels = List.of(
+                Log.LogLevel.ERROR,
+                Log.LogLevel.WARN
+        );
+
+        Page<Log> logs = logRepository.findByUploadUploadIdAndLevelIn(
+                uploadId,
+                levels,
+                PageRequest.of(0, 100, Sort.by("logTimestamp").ascending())
+        );
+
+        return logs.getContent();
+    }
+
     private void validateUpload(String uploadId, Long userId) {
         uploadRepository.findByUploadIdAndUserId(uploadId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Upload not found"));

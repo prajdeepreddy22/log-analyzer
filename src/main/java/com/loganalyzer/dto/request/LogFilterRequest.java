@@ -18,6 +18,7 @@ public class LogFilterRequest {
     private int page = 0;
     private int size = 10;
 
-    private String sortBy = "logSequence";
-    private String sortDir = "asc";
+    // ✅ Sorting (aligned with controller)
+    private String sortBy = "logTimestamp";
+    private String direction = "desc";
 }
