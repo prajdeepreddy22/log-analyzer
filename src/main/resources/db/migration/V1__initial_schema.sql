@@ -1,5 +1,5 @@
 -- ============================================================
--- GenAI Log Analyzer — Flyway Initial Schema (FINAL)
+-- GenAI Log Analyzer — Flyway Initial Schema
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -35,7 +35,8 @@ CREATE TABLE uploads (
                          CONSTRAINT fk_uploads_user
                              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 
-                         INDEX idx_uploads_user_status (user_id, status)
+                         INDEX idx_uploads_user_status (user_id, status),
+                         INDEX idx_uploads_upload_user (upload_id, user_id)   -- 🔥 NEW (safe)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
@@ -52,14 +53,19 @@ CREATE TABLE logs (
                       host_name      VARCHAR(200),
                       message        TEXT NOT NULL,
                       source         ENUM('UPLOADED','REALTIME') NOT NULL DEFAULT 'UPLOADED',
-                      hash_key       VARCHAR(64),
+                      hash_key       VARCHAR(64) NOT NULL,   -- 🔥 UPDATED (safe now)
                       created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
                       CONSTRAINT fk_logs_upload
                           FOREIGN KEY (upload_id) REFERENCES uploads(upload_id) ON DELETE CASCADE,
 
+    -- Existing indexes (kept for compatibility)
                       INDEX idx_logs_upload_level_ts_hash (upload_id, level, log_timestamp, hash_key),
                       INDEX idx_logs_sequence (upload_id, log_sequence),
+
+    -- 🔥 NEW (optimized for AI queries)
+                      INDEX idx_logs_ai_fetch (upload_id, level, log_timestamp),
+
                       FULLTEXT INDEX idx_logs_message_fulltext (message)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -90,10 +96,19 @@ CREATE TABLE analysis (
                           CONSTRAINT fk_analysis_user
                               FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 
-                          INDEX idx_analysis_hash_user (hash_key, user_id),
+    -- 🔥 CRITICAL FOR CACHING
+                          UNIQUE KEY uk_analysis_hash_user (hash_key, user_id),
+
+    -- Existing indexes (kept)
                           INDEX idx_analysis_hash_key (hash_key),
                           INDEX idx_analysis_upload_id (upload_id),
                           INDEX idx_analysis_user_id (user_id),
                           INDEX idx_analysis_upload_user (upload_id, user_id),
-                          INDEX idx_analysis_status (analysis_status)
+                          INDEX idx_analysis_status (analysis_status),
+
+    -- 🔥 Optional optimization
+                          INDEX idx_analysis_hash_status (hash_key, analysis_status),
+
+    -- 🔥 Data validation
+                          CONSTRAINT chk_severity_score CHECK (severity_score BETWEEN 1 AND 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
