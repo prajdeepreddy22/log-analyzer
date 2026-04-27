@@ -1,7 +1,11 @@
 package com.loganalyzer.parser;
 
+import com.loganalyzer.entity.Log.LogLevel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import com.loganalyzer.service.HashKeyService;
+import com.loganalyzer.entity.Log.LogLevel;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -39,7 +43,6 @@ public class LogParserService {
     private static final DateTimeFormatter FORMATTER2 =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
-    // ================= MAIN PARSE =================
     public List<ParsedLogEntry> parse(InputStream inputStream) throws IOException {
 
         List<ParsedLogEntry> results = new ArrayList<>();
@@ -72,7 +75,6 @@ public class LogParserService {
         return results;
     }
 
-    // ================= ENTRY PARSER =================
     private ParsedLogEntry parseEntry(List<String> lines, long sequence) {
 
         String firstLine = lines.get(0);
@@ -86,13 +88,11 @@ public class LogParserService {
         entry.setRawLog(String.join("\n", lines));
         entry.setHasStackTrace(!stackLines.isEmpty());
 
-        // IMPORTANT: hash based on clean structured entry
         entry.setHashKey(hashKeyService.computeHash(entry));
 
         return entry;
     }
 
-    // ================= FORMAT PARSING =================
     private ParsedLogEntry tryParseFormats(String firstLine, long sequence) {
 
         Matcher m1 = FORMAT1.matcher(firstLine);
@@ -126,7 +126,6 @@ public class LogParserService {
                 .build();
     }
 
-    // ================= CLEAN BUILDER =================
     private ParsedLogEntry buildEntry(
             String timestampStr,
             String levelStr,
@@ -138,12 +137,11 @@ public class LogParserService {
                 .timestamp(parseTimestamp(timestampStr))
                 .level(LogLevel.fromString(levelStr))
                 .serviceName(service)
-                .message(message)   // ✅ CLEAN MESSAGE ONLY
+                .message(message)
                 .logSequence(sequence)
                 .build();
     }
 
-    // ================= UTIL =================
     private boolean isNewLogEntry(String line) {
         return TIMESTAMP_PATTERN.matcher(line).find()
                 || !isStackTraceLine(line);

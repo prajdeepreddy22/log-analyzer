@@ -1,36 +1,37 @@
-package com.loganalyzer.parser;
+package com.loganalyzer.service;
 
+import com.loganalyzer.entity.Log;
+import com.loganalyzer.entity.Log.LogLevel;
+import com.loganalyzer.parser.ParsedLogEntry;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
 public class HashKeyService {
 
-    // Detect exception names (NullPointerException, IOException, etc.)
     private static final Pattern EXCEPTION_PATTERN =
             Pattern.compile("([A-Za-z0-9_.]*Exception|[A-Za-z0-9_.]*Error)");
 
-    // ==================== MAIN METHOD ====================
-
+    // =========================
+    // Parser Hash (per log)
+    // =========================
     public String computeHash(ParsedLogEntry entry) {
 
         String message = entry.getMessage() != null ? entry.getMessage() : "";
-
-        // Normalize message
         String normalized = normalize(message);
 
         String base;
 
-        // Different strategy for ERROR/FATAL
-        if (entry.getLevel() == LogLevel.ERROR ||
-                entry.getLevel() == LogLevel.FATAL) {
+        if (entry.getLevel() != null &&
+                (entry.getLevel() == LogLevel.ERROR ||
+                        entry.getLevel() == LogLevel.FATAL)) {
 
             String exception = extractExceptionClass(message);
-
             base = exception + "|" + normalized;
 
         } else {
@@ -40,21 +41,43 @@ public class HashKeyService {
         return sha256(base);
     }
 
-    // ==================== NORMALIZATION ====================
+    // =========================
+    // AI Hash (multiple logs)
+    // =========================
+    public String computeHashFromLogs(List<Log> logs) {
 
+        if (logs == null || logs.isEmpty()) {
+            return sha256("empty");
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (Log log : logs) {
+            sb.append(log.getLevel())
+                    .append("|")
+                    .append(normalize(log.getMessage()))
+                    .append("\n");
+        }
+
+        return sha256(sb.toString());
+    }
+
+    // =========================
+    //Normalize
+    // =========================
     private String normalize(String input) {
-
         return input
-                .replaceAll("\\d+", "")                     // remove numbers
-                .replaceAll("[0-9a-f-]{36}", "")           // remove UUID
-                .replaceAll("0x[0-9a-fA-F]+", "")          // remove hex
-                .replaceAll("\\d{4}-\\d{2}-\\d{2}.*?\\s", "") // remove timestamps
+                .replaceAll("\\d+", "")
+                .replaceAll("[0-9a-f-]{36}", "")
+                .replaceAll("0x[0-9a-fA-F]+", "")
+                .replaceAll("\\d{4}-\\d{2}-\\d{2}.*?\\s", "")
                 .toLowerCase()
                 .trim();
     }
 
-    // ==================== EXCEPTION EXTRACTION ====================
-
+    // =========================
+    //Extract Exception
+    // =========================
     private String extractExceptionClass(String message) {
 
         Matcher matcher = EXCEPTION_PATTERN.matcher(message);
@@ -66,8 +89,9 @@ public class HashKeyService {
         return "";
     }
 
-    // ==================== SHA-256 ====================
-
+    // =========================
+    // SHA-256
+    // =========================
     private String sha256(String input) {
 
         try {
@@ -86,7 +110,7 @@ public class HashKeyService {
             return hex.toString();
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate hash", e);
+            throw new RuntimeException("Hash generation failed", e);
         }
     }
 }
