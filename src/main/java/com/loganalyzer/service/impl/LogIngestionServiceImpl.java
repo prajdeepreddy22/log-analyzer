@@ -36,41 +36,40 @@ public class LogIngestionServiceImpl implements LogIngestionService {
 
         log.info("Starting log ingestion for uploadId={}", uploadId);
 
-        // ✅ Correct method (PRIMARY KEY)
         Upload upload = uploadRepository.findById(uploadId)
                 .orElseThrow(() -> new RuntimeException("Upload not found"));
 
         try {
-            // 1. PROCESSING
+            // PROCESSING
             upload.setStatus(UploadStatus.PROCESSING);
             uploadRepository.save(upload);
 
-            // 2. Read file
+            // Read file
             InputStream inputStream = storageService.read(upload.getFilePath());
 
-            // 3. Parse logs
+            // Parse logs
             List<ParsedLogEntry> parsedLogs = logParserService.parse(inputStream);
 
             log.info("Parsed {} logs for uploadId={}", parsedLogs.size(), uploadId);
 
-            // ✅ IMPORTANT FIX: Filter invalid logs
+            // Convert to entity
             List<Log> logs = parsedLogs.stream()
-                    .filter(entry -> entry.getTimestamp() != null) // 🔥 remove garbage logs
+                    .filter(entry -> entry.getTimestamp() != null)
                     .map(entry -> Log.builder()
                             .upload(upload)
                             .logTimestamp(entry.getTimestamp())
                             .logSequence(entry.getLogSequence())
-                            .level(mapLevel(entry.getLevel()))
+                            .level(entry.getLevel()) // ✅ FIXED
                             .serviceName(entry.getServiceName())
                             .message(entry.getMessage())
                             .hashKey(entry.getHashKey())
                             .build()
                     ).toList();
 
-            // 5. Save
+            // Save
             logRepository.saveAll(logs);
 
-            // 6. Stats
+            // Stats
             long errorCount = logs.stream()
                     .filter(l -> l.getLevel() == LogLevel.ERROR)
                     .count();
@@ -95,18 +94,5 @@ public class LogIngestionServiceImpl implements LogIngestionService {
             upload.setStatus(UploadStatus.FAILED);
             uploadRepository.save(upload);
         }
-    }
-
-    private LogLevel mapLevel(com.loganalyzer.parser.LogLevel level) {
-        if (level == null) return LogLevel.UNKNOWN;
-
-        return switch (level) {
-            case DEBUG -> LogLevel.DEBUG;
-            case INFO -> LogLevel.INFO;
-            case WARN -> LogLevel.WARN;
-            case ERROR -> LogLevel.ERROR;
-            case FATAL -> LogLevel.FATAL;
-            default -> LogLevel.UNKNOWN;
-        };
     }
 }

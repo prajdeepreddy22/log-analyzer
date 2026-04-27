@@ -31,10 +31,15 @@ public interface LogRepository extends JpaRepository<Log, Long>,
 
     long countByUploadUploadIdAndLevel(String uploadId, LogLevel level);
 
-    // ✅ FOR AI (optimized)
+    //FOR AI
     Page<Log> findByUploadUploadIdAndLevelIn(
             String uploadId,
             List<LogLevel> levels,
             Pageable pageable
+    );
+
+    List<Log> findTop100ByUploadUploadIdAndLevelInOrderByLogTimestampDesc(
+            String uploadId,
+            List<LogLevel> levels
     );
 }

@@ -1,5 +1,7 @@
 package com.loganalyzer.parser;
 
+import com.loganalyzer.service.HashKeyService;
+
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -20,7 +22,10 @@ public class ParserTestRunner {
                 Some random unstructured log line
                 """;
 
-        LogParserService parser = new LogParserService(new HashKeyService());
+        // ✅ FIX: correct package
+        HashKeyService hashKeyService = new HashKeyService();
+
+        LogParserService parser = new LogParserService(hashKeyService);
 
         List<ParsedLogEntry> result = parser.parse(
                 new ByteArrayInputStream(logs.getBytes(StandardCharsets.UTF_8))
