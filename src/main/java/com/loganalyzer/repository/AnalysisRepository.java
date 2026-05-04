@@ -6,6 +6,7 @@ import jakarta.transaction.Transactional;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import java.util.List;
 
 import java.util.Optional;
 
@@ -62,4 +63,6 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
     // =========================
 
     long countByAnalysisStatus(AnalysisStatus status);
+
+    List<Analysis> findByUserIdOrderByCreatedAtDesc(Long userId);
 }

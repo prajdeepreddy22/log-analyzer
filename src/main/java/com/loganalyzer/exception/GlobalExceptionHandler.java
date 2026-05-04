@@ -17,52 +17,112 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    // =========================
+    // NOT FOUND
+    // =========================
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {
-        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+
+        log.warn("Resource not found: {}", ex.getMessage());
+
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                "Resource not found",
+                ex.getMessage()
+        );
     }
 
+    // =========================
+    // UNAUTHORIZED
+    // =========================
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException ex) {
-        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+
+        log.warn("Unauthorized access: {}", ex.getMessage());
+
+        return buildResponse(
+                HttpStatus.FORBIDDEN,
+                "Unauthorized",
+                ex.getMessage()
+        );
     }
 
+    // =========================
+    // BAD REQUEST
+    // =========================
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequest(BadRequestException ex) {
-        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+
+        log.warn("Bad request: {}", ex.getMessage());
+
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "Bad request",
+                ex.getMessage()
+        );
     }
 
+    // =========================
+    // FILE SIZE
+    // =========================
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, Object>> handleMaxSize(MaxUploadSizeExceededException ex) {
-        return buildResponse(HttpStatus.PAYLOAD_TOO_LARGE,
-                "File size exceeds maximum limit (10MB)");
+
+        return buildResponse(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "File too large",
+                "File size exceeds maximum limit (10MB)"
+        );
     }
 
+    // =========================
+    // VALIDATION
+    // =========================
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
 
         String errors = ex.getBindingResult()
                 .getFieldErrors()
                 .stream()
-                .map(FieldError::getDefaultMessage)
+                .map(fieldError ->
+                        fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .collect(Collectors.joining(", "));
 
-        return buildResponse(HttpStatus.BAD_REQUEST, errors);
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "Validation failed",
+                errors
+        );
     }
 
+    // =========================
+    // GENERIC
+    // =========================
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
-        log.error("Unexpected error", ex);
-        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
-                "Something went wrong");
+
+        log.error("Unexpected error occurred", ex);
+
+        return buildResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Internal server error",
+                ex.getMessage() != null ? ex.getMessage() : "Something went wrong"
+        );
     }
 
-    private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {
+    // =========================
+    // COMMON RESPONSE BUILDER
+    // =========================
+    private ResponseEntity<Map<String, Object>> buildResponse(
+            HttpStatus status,
+            String error,
+            String details) {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("timestamp", LocalDateTime.now());
         body.put("status", status.value());
-        body.put("error", message);
+        body.put("error", error);      // short message
+        body.put("details", details);  // actual reason
 
         return new ResponseEntity<>(body, status);
     }

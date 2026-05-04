@@ -5,7 +5,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import com.loganalyzer.service.HashKeyService;
-import com.loganalyzer.entity.Log.LogLevel;
 
 import java.io.BufferedReader;
 import java.io.IOException;

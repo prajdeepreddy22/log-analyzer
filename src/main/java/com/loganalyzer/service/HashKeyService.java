@@ -22,20 +22,27 @@ public class HashKeyService {
     // =========================
     public String computeHash(ParsedLogEntry entry) {
 
-        String message = entry.getMessage() != null ? entry.getMessage() : "";
+        String message = safe(entry.getMessage());
         String normalized = normalize(message);
+        String service = safe(entry.getServiceName());
+        LogLevel level = entry.getLevel() != null ? entry.getLevel() : LogLevel.UNKNOWN;
 
         String base;
 
-        if (entry.getLevel() != null &&
-                (entry.getLevel() == LogLevel.ERROR ||
-                        entry.getLevel() == LogLevel.FATAL)) {
+        if (level == LogLevel.ERROR || level == LogLevel.FATAL) {
 
             String exception = extractExceptionClass(message);
-            base = exception + "|" + normalized;
+
+            base = level + "|" +
+                    service + "|" +
+                    exception + "|" +
+                    normalized;
 
         } else {
-            base = normalized;
+            // include level + service even for non-error logs
+            base = level + "|" +
+                    service + "|" +
+                    normalized;
         }
 
         return sha256(base);
@@ -53,9 +60,20 @@ public class HashKeyService {
         StringBuilder sb = new StringBuilder();
 
         for (Log log : logs) {
-            sb.append(log.getLevel())
+
+            String message = safe(log.getMessage());
+            String normalized = normalize(message);
+            String exception = extractExceptionClass(message);
+            String service = safe(log.getServiceName());
+            LogLevel level = log.getLevel() != null ? log.getLevel() : LogLevel.UNKNOWN;
+
+            sb.append(level)
                     .append("|")
-                    .append(normalize(log.getMessage()))
+                    .append(service)
+                    .append("|")
+                    .append(exception)
+                    .append("|")
+                    .append(normalized)
                     .append("\n");
         }
 
@@ -63,7 +81,7 @@ public class HashKeyService {
     }
 
     // =========================
-    //Normalize
+    // Normalize
     // =========================
     private String normalize(String input) {
         return input
@@ -76,7 +94,7 @@ public class HashKeyService {
     }
 
     // =========================
-    //Extract Exception
+    // Extract Exception
     // =========================
     private String extractExceptionClass(String message) {
 
@@ -112,5 +130,12 @@ public class HashKeyService {
         } catch (Exception e) {
             throw new RuntimeException("Hash generation failed", e);
         }
+    }
+
+    // =========================
+    // Null Safety Helper
+    // =========================
+    private String safe(String value) {
+        return value != null ? value : "UNKNOWN";
     }
 }

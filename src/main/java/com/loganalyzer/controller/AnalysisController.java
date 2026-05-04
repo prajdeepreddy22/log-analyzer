@@ -1,11 +1,12 @@
 package com.loganalyzer.controller;
 
-import com.loganalyzer.dto.response.AnalysisResponse;
+import com.loganalyzer.dto.response.*;
 import com.loganalyzer.service.AnalysisService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/analysis")
@@ -14,34 +15,40 @@ public class AnalysisController {
 
     private final AnalysisService analysisService;
 
-    // Trigger analysis
-    @PostMapping("/{uploadId}")
-    public Map<String, Object> analyze(@PathVariable String uploadId,
-                                       @RequestHeader("userId") Long userId) {
+    private Long getUserId(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
 
-        analysisService.analyze(uploadId, userId);
+        if (userId == null) {
+            throw new RuntimeException("Unauthorized: userId missing in request");
+        }
 
-        return Map.of(
-                "message", "Analysis started",
-                "uploadId", uploadId
-        );
+        return userId;
     }
 
-    // Fetch result
+    @PostMapping("/{uploadId}")
+    public AnalysisTriggerResponse analyze(@PathVariable String uploadId,
+                                           @RequestParam(defaultValue = "false") boolean force,
+                                           HttpServletRequest request) {
+
+        return analysisService.analyze(uploadId, getUserId(request), force);
+    }
+
     @GetMapping("/{uploadId}")
     public AnalysisResponse getAnalysis(@PathVariable String uploadId,
-                                        @RequestHeader("userId") Long userId) {
+                                        HttpServletRequest request) {
 
-        return analysisService.getAnalysis(uploadId, userId);
+        return analysisService.getAnalysis(uploadId, getUserId(request));
     }
 
-    // Get only status
     @GetMapping("/{uploadId}/status")
-    public Map<String, String> getStatus(@PathVariable String uploadId,
-                                         @RequestHeader("userId") Long userId) {
+    public String getStatus(@PathVariable String uploadId,
+                            HttpServletRequest request) {
 
-        String status = analysisService.getAnalysis(uploadId, userId).getStatus();
+        return analysisService.getStatus(uploadId, getUserId(request));
+    }
 
-        return Map.of("status", status);
+    @GetMapping("/history")
+    public List<AnalysisHistoryResponse> getHistory(HttpServletRequest request) {
+        return analysisService.getHistory(getUserId(request));
     }
 }

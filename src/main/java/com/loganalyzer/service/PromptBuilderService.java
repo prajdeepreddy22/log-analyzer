@@ -4,6 +4,8 @@ import com.loganalyzer.entity.Log;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class PromptBuilderService {
@@ -22,17 +24,24 @@ public class PromptBuilderService {
         sb.append("5. Code Fix\n");
         sb.append("6. Severity Score (1-5)\n\n");
 
-        sb.append("Logs:\n");
+        sb.append("Logs (grouped):\n");
 
-        // Limit logs (important for OpenAI token limit)
-        logs.stream().limit(50).forEach(log ->
-                sb.append(log.getLogTimestamp())
-                        .append(" | ")
-                        .append(log.getLevel())
-                        .append(" | ")
-                        .append(log.getMessage())
-                        .append("\n")
-        );
+        // GROUP SIMILAR LOGS
+        Map<String, Long> groupedLogs = logs.stream()
+                .collect(Collectors.groupingBy(
+                        log -> log.getLevel() + " | " + log.getServiceName() + " | " + log.getMessage(),
+                        Collectors.counting()
+                ));
+
+        // LIMIT GROUPS (not raw logs)
+        groupedLogs.entrySet().stream()
+                .limit(20)
+                .forEach(entry ->
+                        sb.append(entry.getKey())
+                                .append(" (")
+                                .append(entry.getValue())
+                                .append(" times)\n")
+                );
 
         sb.append("\nRespond strictly in JSON format like:\n");
         sb.append("""
