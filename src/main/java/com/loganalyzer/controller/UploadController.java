@@ -4,7 +4,6 @@ import com.loganalyzer.dto.response.PageResponse;
 import com.loganalyzer.dto.response.UploadResponse;
 import com.loganalyzer.dto.response.UploadStatusResponse;
 import com.loganalyzer.entity.UploadStatus;
-import com.loganalyzer.exception.BadRequestException;
 import com.loganalyzer.exception.UnauthorizedException;
 import com.loganalyzer.service.UploadService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,7 +25,6 @@ public class UploadController {
 
     private final UploadService uploadService;
 
-    // ==================== HELPER ====================
     private Long extractUserId(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
 
@@ -37,7 +35,6 @@ public class UploadController {
         return userId;
     }
 
-    // ==================== UPLOAD ====================
     @PostMapping(
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE
@@ -60,7 +57,6 @@ public class UploadController {
         return ResponseEntity.accepted().body(response);
     }
 
-    // ==================== STATUS ====================
     @GetMapping("/{uploadId}")
     public ResponseEntity<UploadStatusResponse> getUploadStatus(
             @PathVariable String uploadId,
@@ -69,13 +65,14 @@ public class UploadController {
 
         Long userId = extractUserId(request);
 
+        log.info("Fetching upload status uploadId={} userId={}", uploadId, userId);
+
         UploadStatusResponse response =
                 uploadService.getUploadStatus(uploadId, userId);
 
         return ResponseEntity.ok(response);
     }
 
-    // ==================== LIST ====================
     @GetMapping
     public ResponseEntity<PageResponse<UploadResponse>> getUploads(
             @RequestParam(required = false) UploadStatus status,
@@ -90,6 +87,8 @@ public class UploadController {
         int safeSize = Math.min(Math.max(size, 1), 100);
 
         Pageable pageable = PageRequest.of(safePage, safeSize);
+
+        log.info("Fetching uploads userId={} page={} size={}", userId, safePage, safeSize);
 
         PageResponse<UploadResponse> response =
                 uploadService.getUserUploads(userId, status, pageable);

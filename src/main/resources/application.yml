@@ -8,6 +8,7 @@ spring:
     username: root
     password: ${DB_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
+
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
@@ -20,13 +21,17 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
     show-sql: false
     open-in-view: false
+
     properties:
       hibernate:
         format_sql: true
+
         jdbc:
           batch_size: 50
+
         order_inserts: true
         order_updates: true
 
@@ -41,11 +46,13 @@ spring:
   jackson:
     serialization:
       write-dates-as-timestamps: false
+
     time-zone: UTC
 
 # ==================== SERVER ====================
 server:
   port: 8080
+
   servlet:
     context-path: /api
 
@@ -54,11 +61,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info,metrics,prometheus
+
   endpoint:
     health:
       show-details: always
-  prometheus:
+
+  metrics:
     export:
       prometheus:
         enabled: true
@@ -69,20 +78,33 @@ logging:
     root: INFO
     com.loganalyzer: DEBUG
     org.hibernate.SQL: DEBUG
+
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 # ==================== APP CUSTOM CONFIG ====================
 app:
+
+  # ==================== JWT ====================
   jwt:
     secret: ${JWT_SECRET:}
     expiration: 86400000
+
+  # ==================== AI ====================
   ai:
     max-logs: 100
     max-chars: 12000
+
+    retry:
+      max-attempts: 3
+
+  # ==================== FILE UPLOAD ====================
   upload:
     max-file-size: 10MB
     allowed-types: text/plain,application/octet-stream
+
+  # ==================== RATE LIMIT ====================
   rate-limit:
     max-requests: 5
     window-minutes: 1
+    daily-limit: 100

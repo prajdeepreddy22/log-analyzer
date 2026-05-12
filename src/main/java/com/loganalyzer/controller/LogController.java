@@ -28,9 +28,11 @@ public class LogController {
 
     private Long extractUserId(HttpServletRequest request) {
         Long userId = (Long) request.getAttribute("userId");
+
         if (userId == null) {
             throw new UnauthorizedException("Unauthorized");
         }
+
         return userId;
     }
 
@@ -43,14 +45,15 @@ public class LogController {
                 ? sortBy
                 : "logTimestamp";
 
-        Sort sort = direction.equalsIgnoreCase("desc")
-                ? Sort.by(sortField).descending()
-                : Sort.by(sortField).ascending();
+        String dir = direction != null ? direction.toLowerCase() : "desc";
+
+        Sort sort = dir.equals("asc")
+                ? Sort.by(sortField).ascending()
+                : Sort.by(sortField).descending();
 
         return PageRequest.of(safePage, safeSize, sort);
     }
 
-    // GET logs (UPDATED)
     @GetMapping("/{uploadId}")
     public PageResponse<LogResponse> getLogs(
             @PathVariable String uploadId,
@@ -60,19 +63,22 @@ public class LogController {
             @RequestParam(defaultValue = "desc") String direction,
             HttpServletRequest request
     ) {
+
         Long userId = extractUserId(request);
         Pageable pageable = buildPageable(page, size, sortBy, direction);
+
+        log.info("Fetching logs uploadId={} userId={}", uploadId, userId);
 
         return logQueryService.getLogs(uploadId, userId, pageable);
     }
 
-    // FILTER search (UPDATED)
     @PostMapping("/search/{uploadId}")
     public PageResponse<LogResponse> searchLogs(
             @PathVariable String uploadId,
             @RequestBody LogFilterRequest filter,
             HttpServletRequest request
     ) {
+
         if (filter == null) {
             throw new BadRequestException("Invalid request body");
         }
@@ -86,16 +92,21 @@ public class LogController {
                 filter.getDirection() != null ? filter.getDirection() : "desc"
         );
 
+        log.info("Searching logs uploadId={} userId={}", uploadId, userId);
+
         return logQueryService.searchLogs(uploadId, userId, filter, pageable);
     }
 
-    // STATS (UNCHANGED)
     @GetMapping("/{uploadId}/stats")
     public LogStatsResponse getStats(
             @PathVariable String uploadId,
             HttpServletRequest request
     ) {
+
         Long userId = extractUserId(request);
+
+        log.info("Fetching log stats uploadId={} userId={}", uploadId, userId);
+
         return logQueryService.getLogStats(uploadId, userId);
     }
 }

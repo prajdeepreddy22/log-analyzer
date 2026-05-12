@@ -1,14 +1,27 @@
 package com.loganalyzer.service;
 
-import com.loganalyzer.dto.response.*;
-import com.loganalyzer.entity.*;
-import com.loganalyzer.entity.Log.LogLevel;
-import com.loganalyzer.repository.*;
+import com.loganalyzer.dto.ai.AIJobDto;
+import com.loganalyzer.dto.response.AnalysisHistoryResponse;
+import com.loganalyzer.dto.response.AnalysisResponse;
+import com.loganalyzer.dto.response.AnalysisTriggerResponse;
+import com.loganalyzer.dto.response.RateLimitStatus;
+import com.loganalyzer.entity.Analysis;
+import com.loganalyzer.entity.Log;
+import com.loganalyzer.entity.Upload;
+import com.loganalyzer.exception.ResourceNotFoundException;
+import com.loganalyzer.repository.AnalysisRepository;
+import com.loganalyzer.repository.LogRepository;
+import com.loganalyzer.repository.UploadRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -19,180 +32,751 @@ public class AnalysisService {
     private final LogRepository logRepository;
     private final UploadRepository uploadRepository;
     private final HashKeyService hashKeyService;
-    private final AIProcessingService aiProcessingService;
+    private final AIQueueService aiQueueService;
     private final CacheDecisionService cacheDecisionService;
+    private final RateLimitService rateLimitService;
+    private final MetricsService metricsService;
 
-    // =========================
-    // Trigger analysis
-    // =========================
-    public AnalysisTriggerResponse analyze(String uploadId, Long userId, boolean force) {
+    // =====================================================
+    // MAIN ANALYSIS API
+    // =====================================================
+    public AnalysisTriggerResponse analyze(
+            String uploadId,
+            Long userId,
+            boolean force
+    ) {
 
-        log.info("Analysis request received. uploadId={}, userId={}, force={}", uploadId, userId, force);
+        log.info(
+                "Analysis request received uploadId={} userId={} force={}",
+                uploadId,
+                userId,
+                force
+        );
 
-        Upload upload = uploadRepository.findById(uploadId)
-                .orElseThrow(() -> new RuntimeException("Upload not found for uploadId=" + uploadId));
+        Upload upload = uploadRepository
+                .findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Upload not found")
+                );
 
+        // =====================================================
+        // FETCH IMPORTANT LOGS
+        // =====================================================
         List<Log> logs = logRepository
                 .findTop100ByUploadUploadIdAndLevelInOrderByLogTimestampDesc(
                         uploadId,
-                        List.of(LogLevel.ERROR, LogLevel.WARN)
+                        List.of(
+                                Log.LogLevel.ERROR,
+                                Log.LogLevel.WARN
+                        )
                 );
 
         if (logs.isEmpty()) {
-            throw new RuntimeException("No logs to analyze for uploadId=" + uploadId);
+
+            throw new ResourceNotFoundException(
+                    "No ERROR or WARN logs found to analyze"
+            );
         }
 
-        String hash = hashKeyService.computeHashFromLogs(logs);
+        // =====================================================
+        // ENRICH CONTEXT
+        // =====================================================
+        logs = enrichWithContext(logs);
 
-        // =========================
-        // FORCE MODE
-        // =========================
+        // =====================================================
+        // HASH
+        // =====================================================
+        String hash =
+                hashKeyService.computeHashFromLogs(logs);
+
+        log.info(
+                "Generated hash={} uploadId={}",
+                hash,
+                uploadId
+        );
+
+        // =====================================================
+        // FORCE FLOW
+        // =====================================================
         if (force) {
 
-            Analysis analysis = analysisRepository
-                    .findByHashKeyAndUserId(hash, userId)
-                    .orElse(null);
+            Optional<Analysis> existingOpt =
+                    analysisRepository
+                            .findByUploadUploadIdAndUserId(
+                                    uploadId,
+                                    userId
+                            );
 
-            if (analysis == null) {
-                analysis = createNewAnalysis(upload, hash);
-            } else {
+            if (existingOpt.isPresent()) {
 
-                if (analysis.getAnalysisStatus() == Analysis.AnalysisStatus.PROCESSING) {
+                Analysis existing = existingOpt.get();
+
+                if (existing.getAnalysisStatus()
+                        == Analysis.AnalysisStatus.PROCESSING
+                        || existing.getAnalysisStatus()
+                        == Analysis.AnalysisStatus.PENDING
+                        || existing.getAnalysisStatus()
+                        == Analysis.AnalysisStatus.RETRYING) {
+
                     return AnalysisTriggerResponse.builder()
-                            .status("PROCESSING")
-                            .message("Analysis already in progress")
+                            .status(
+                                    existing.getAnalysisStatus().name()
+                            )
+                            .message(
+                                    "Analysis already in progress"
+                            )
                             .uploadId(uploadId)
                             .canForce(false)
                             .build();
                 }
-
-                analysis.setAnalysisStatus(Analysis.AnalysisStatus.PENDING);
-                analysis.setRetryCount(0);
-                analysis.setErrorMessage(null);
             }
+
+            // =====================================================
+            // DUPLICATE ACTIVE CHECK
+            // =====================================================
+            if (aiQueueService.isActive(hash)) {
+
+                return AnalysisTriggerResponse.builder()
+                        .status("PROCESSING")
+                        .message("Analysis already running")
+                        .uploadId(uploadId)
+                        .canForce(false)
+                        .build();
+            }
+
+            // =====================================================
+            // RATE LIMIT CHECK
+            // =====================================================
+            rateLimitService.checkLimit(userId);
+
+            // =====================================================
+            // UPSERT ANALYSIS
+            // =====================================================
+            Analysis analysis =
+                    upsertAnalysis(upload, hash);
+
+            analysis.setHashKey(hash);
+
+            analysis.setAnalysisStatus(
+                    Analysis.AnalysisStatus.PENDING
+            );
+
+            analysis.setRetryCount(0);
+
+            analysis.setErrorMessage(null);
+
+            // clear old AI response
+            analysis.setSummary(null);
+            analysis.setRootCause(null);
+            analysis.setDeveloperMistake(null);
+            analysis.setFixSuggestion(null);
+            analysis.setCodeFix(null);
+            analysis.setSeverityScore(null);
 
             analysisRepository.save(analysis);
 
-            aiProcessingService.processAnalysis(uploadId, userId, hash, logs);
+            // =====================================================
+            // ENQUEUE
+            // =====================================================
+            enqueueAIJob(
+                    uploadId,
+                    userId,
+                    hash,
+                    logs
+            );
 
             return AnalysisTriggerResponse.builder()
-                    .status("FORCED")
-                    .message("Forced analysis started")
+                    .status("QUEUED")
+                    .message(
+                            "Forced analysis queued successfully"
+                    )
                     .uploadId(uploadId)
                     .canForce(false)
                     .build();
         }
 
-        // =========================
-        // CACHE FLOW
-        // =========================
+        // =====================================================
+        // EXISTING ANALYSIS CHECK
+        // =====================================================
+        Optional<Analysis> existingOpt =
+                analysisRepository
+                        .findByUploadUploadIdAndUserId(
+                                uploadId,
+                                userId
+                        );
+
+        if (existingOpt.isPresent()) {
+
+            Analysis existing = existingOpt.get();
+
+            switch (existing.getAnalysisStatus()) {
+
+                case COMPLETED:
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("COMPLETED")
+                            .message(
+                                    "Analysis already completed"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(true)
+                            .build();
+
+                case PROCESSING:
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("PROCESSING")
+                            .message(
+                                    "Analysis already processing"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+
+                case PENDING:
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("QUEUED")
+                            .message(
+                                    "Analysis already queued"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+
+                case RETRYING:
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("RETRYING")
+                            .message(
+                                    "Retry already in progress"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+
+                case FAILED:
+
+                    if (aiQueueService.isActive(
+                            existing.getHashKey()
+                    )) {
+
+                        return AnalysisTriggerResponse.builder()
+                                .status("PROCESSING")
+                                .message(
+                                        "Analysis already running"
+                                )
+                                .uploadId(uploadId)
+                                .canForce(false)
+                                .build();
+                    }
+
+                    rateLimitService.checkLimit(userId);
+
+                    existing.setAnalysisStatus(
+                            Analysis.AnalysisStatus.PENDING
+                    );
+
+                    existing.setRetryCount(
+                            existing.getRetryCount() + 1
+                    );
+
+                    existing.setErrorMessage(null);
+
+                    analysisRepository.save(existing);
+
+                    enqueueAIJob(
+                            uploadId,
+                            userId,
+                            existing.getHashKey(),
+                            logs
+                    );
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("RETRY")
+                            .message(
+                                    "Retry analysis queued"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+
+                default:
+                    break;
+            }
+        }
+
+        // =====================================================
+        // CACHE DECISION
+        // =====================================================
         CacheDecisionService.CacheDecision decision =
                 cacheDecisionService.decide(hash, userId);
 
-        log.info("Cache decision = {}", decision);
-
         switch (decision) {
 
-            case SKIP:
-                return AnalysisTriggerResponse.builder()
-                        .status("CACHED")
-                        .message("Analysis already exists")
-                        .uploadId(uploadId)
-                        .canForce(true)
-                        .build();
+            // =====================================================
+            // CACHE HIT
+            // =====================================================
+            case SKIP: {
 
+                Optional<Analysis> cachedOpt =
+                        analysisRepository
+                                .findFirstByHashKeyAndUserIdAndAnalysisStatus(
+                                        hash,
+                                        userId,
+                                        Analysis.AnalysisStatus.COMPLETED
+                                );
+
+                Analysis newAnalysis =
+                        upsertAnalysis(upload, hash);
+
+                // =================================================
+                // REUSE CACHE
+                // =================================================
+                if (cachedOpt.isPresent()) {
+
+                    Analysis cached = cachedOpt.get();
+
+                    newAnalysis.setSummary(
+                            cached.getSummary()
+                    );
+
+                    newAnalysis.setRootCause(
+                            cached.getRootCause()
+                    );
+
+                    newAnalysis.setDeveloperMistake(
+                            cached.getDeveloperMistake()
+                    );
+
+                    newAnalysis.setFixSuggestion(
+                            cached.getFixSuggestion()
+                    );
+
+                    newAnalysis.setCodeFix(
+                            cached.getCodeFix()
+                    );
+
+                    newAnalysis.setSeverityScore(
+                            cached.getSeverityScore()
+                    );
+
+                    newAnalysis.setAnalysisStatus(
+                            Analysis.AnalysisStatus.COMPLETED
+                    );
+
+                    newAnalysis.setErrorMessage(null);
+
+                    analysisRepository.save(newAnalysis);
+
+                    metricsService
+                            .getCacheHitCounter()
+                            .increment();
+
+                    log.info(
+                            "Cached analysis reused uploadId={} hash={}",
+                            uploadId,
+                            hash
+                    );
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("CACHED")
+                            .message(
+                                    "Cached analysis reused"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(true)
+                            .build();
+                }
+
+                // =================================================
+                // ACTIVE CHECK
+                // =================================================
+                if (aiQueueService.isActive(hash)) {
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("PROCESSING")
+                            .message(
+                                    "Analysis already running"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+                }
+
+                // =================================================
+                // RATE LIMIT
+                // =================================================
+                rateLimitService.checkLimit(userId);
+
+                newAnalysis.setAnalysisStatus(
+                        Analysis.AnalysisStatus.PENDING
+                );
+
+                newAnalysis.setRetryCount(0);
+
+                newAnalysis.setErrorMessage(null);
+
+                analysisRepository.save(newAnalysis);
+
+                enqueueAIJob(
+                        uploadId,
+                        userId,
+                        hash,
+                        logs
+                );
+
+                return AnalysisTriggerResponse.builder()
+                        .status("QUEUED")
+                        .message(
+                                "Analysis queued successfully"
+                        )
+                        .uploadId(uploadId)
+                        .canForce(false)
+                        .build();
+            }
+
+            // =====================================================
+            // SIMILAR ANALYSIS RUNNING
+            // =====================================================
             case IN_PROGRESS:
+
                 return AnalysisTriggerResponse.builder()
                         .status("PROCESSING")
-                        .message("Analysis already in progress")
+                        .message(
+                                "Similar analysis already running"
+                        )
                         .uploadId(uploadId)
                         .canForce(false)
                         .build();
 
-            case RETRY:
-                aiProcessingService.processAnalysis(uploadId, userId, hash, logs);
+            // =====================================================
+            // RETRY FLOW
+            // =====================================================
+            case RETRY: {
+
+                if (aiQueueService.isActive(hash)) {
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("PROCESSING")
+                            .message(
+                                    "Analysis already running"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+                }
+
+                rateLimitService.checkLimit(userId);
+
+                Analysis retryAnalysis =
+                        upsertAnalysis(upload, hash);
+
+                retryAnalysis.setAnalysisStatus(
+                        Analysis.AnalysisStatus.PENDING
+                );
+
+                retryAnalysis.setRetryCount(
+                        retryAnalysis.getRetryCount() + 1
+                );
+
+                retryAnalysis.setErrorMessage(null);
+
+                analysisRepository.save(retryAnalysis);
+
+                enqueueAIJob(
+                        uploadId,
+                        userId,
+                        hash,
+                        logs
+                );
+
                 return AnalysisTriggerResponse.builder()
                         .status("RETRY")
-                        .message("Retrying analysis")
+                        .message(
+                                "Retry analysis queued"
+                        )
                         .uploadId(uploadId)
                         .canForce(false)
                         .build();
+            }
 
-            case NEW:
-                Analysis analysis = createNewAnalysis(upload, hash);
+            // =====================================================
+            // BRAND NEW ANALYSIS
+            // =====================================================
+            case NEW: {
+
+                if (aiQueueService.isActive(hash)) {
+
+                    return AnalysisTriggerResponse.builder()
+                            .status("PROCESSING")
+                            .message(
+                                    "Analysis already running"
+                            )
+                            .uploadId(uploadId)
+                            .canForce(false)
+                            .build();
+                }
+
+                rateLimitService.checkLimit(userId);
+
+                Analysis analysis =
+                        upsertAnalysis(upload, hash);
+
+                analysis.setAnalysisStatus(
+                        Analysis.AnalysisStatus.PENDING
+                );
+
+                analysis.setRetryCount(0);
+
+                analysis.setErrorMessage(null);
+
                 analysisRepository.save(analysis);
 
-                aiProcessingService.processAnalysis(uploadId, userId, hash, logs);
+                enqueueAIJob(
+                        uploadId,
+                        userId,
+                        hash,
+                        logs
+                );
 
                 return AnalysisTriggerResponse.builder()
-                        .status("NEW")
-                        .message("Analysis started")
+                        .status("QUEUED")
+                        .message(
+                                "Analysis queued successfully"
+                        )
                         .uploadId(uploadId)
                         .canForce(false)
                         .build();
-        }
+            }
 
-        throw new RuntimeException("Unexpected state");
+            default:
+                throw new RuntimeException(
+                        "Unexpected cache decision"
+                );
+        }
     }
 
-    // =========================
-    // Get full analysis
-    // =========================
-    public AnalysisResponse getAnalysis(String uploadId, Long userId) {
+    // =====================================================
+    // GET ANALYSIS
+    // =====================================================
+    public AnalysisResponse getAnalysis(
+            String uploadId,
+            Long userId
+    ) {
 
         Analysis analysis = analysisRepository
-                .findByUploadUploadIdAndUserId(uploadId, userId)
-                .orElseThrow(() -> new RuntimeException("Analysis not found for uploadId=" + uploadId));
+                .findByUploadUploadIdAndUserId(
+                        uploadId,
+                        userId
+                )
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Analysis not found"
+                        )
+                );
 
         return AnalysisResponse.builder()
                 .summary(analysis.getSummary())
                 .rootCause(analysis.getRootCause())
-                .developerMistake(analysis.getDeveloperMistake())
-                .fixSuggestion(analysis.getFixSuggestion())
+                .developerMistake(
+                        analysis.getDeveloperMistake()
+                )
+                .fixSuggestion(
+                        analysis.getFixSuggestion()
+                )
                 .codeFix(analysis.getCodeFix())
-                .severityScore(analysis.getSeverityScore())
-                .status(analysis.getAnalysisStatus().name())
+                .severityScore(
+                        analysis.getSeverityScore()
+                )
+                .status(
+                        analysis.getAnalysisStatus().name()
+                )
                 .build();
     }
 
-    // =========================
-    // Get status
-    // =========================
-    public String getStatus(String uploadId, Long userId) {
+    // =====================================================
+    // GET STATUS
+    // =====================================================
+    public String getStatus(
+            String uploadId,
+            Long userId
+    ) {
 
         return analysisRepository
-                .findStatusByUploadIdAndUserId(uploadId, userId)
-                .orElseThrow(() -> new RuntimeException("Analysis not found for uploadId=" + uploadId))
+                .findStatusByUploadIdAndUserId(
+                        uploadId,
+                        userId
+                )
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Analysis not found"
+                        )
+                )
                 .name();
     }
 
-    // =========================
-    // HISTORY FEATURE
-    // =========================
-    public List<AnalysisHistoryResponse> getHistory(Long userId) {
+    // =====================================================
+    // GET RATE LIMIT STATUS
+    // =====================================================
+    public RateLimitStatus getRateLimitStatus(
+            Long userId
+    ) {
 
-        List<Analysis> analyses =
-                analysisRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return rateLimitService.getStatus(userId);
+    }
 
-        return analyses.stream()
-                .map(a -> AnalysisHistoryResponse.builder()
-                        .uploadId(a.getUpload().getUploadId())
-                        .status(a.getAnalysisStatus().name())
-                        .severityScore(a.getSeverityScore() != null ? a.getSeverityScore() : 0)
-                        .createdAt(a.getCreatedAt())
-                        .build()
+    // =====================================================
+    // GET HISTORY
+    // =====================================================
+    public List<AnalysisHistoryResponse> getHistory(
+            Long userId
+    ) {
+
+        return analysisRepository
+                .findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .map(a ->
+                        AnalysisHistoryResponse.builder()
+                                .uploadId(
+                                        a.getUpload().getUploadId()
+                                )
+                                .status(
+                                        a.getAnalysisStatus().name()
+                                )
+                                .severityScore(
+                                        a.getSeverityScore() != null
+                                                ? a.getSeverityScore()
+                                                : 0
+                                )
+                                .createdAt(a.getCreatedAt())
+                                .build()
                 )
                 .toList();
     }
 
-    // =========================
-    private Analysis createNewAnalysis(Upload upload, String hash) {
-        return Analysis.builder()
-                .upload(upload)
-                .user(upload.getUser())
-                .hashKey(hash)
-                .promptVersion(2)
-                .analysisStatus(Analysis.AnalysisStatus.PENDING)
+    // =====================================================
+    // UPSERT ANALYSIS
+    // =====================================================
+    private Analysis upsertAnalysis(
+            Upload upload,
+            String hash
+    ) {
+
+        return analysisRepository
+                .findByUploadUploadIdAndUserId(
+                        upload.getUploadId(),
+                        upload.getUser().getId()
+                )
+                .map(existing -> {
+
+                    existing.setHashKey(hash);
+
+                    existing.setErrorMessage(null);
+
+                    return existing;
+                })
+                .orElseGet(() ->
+
+                        Analysis.builder()
+                                .upload(upload)
+                                .user(upload.getUser())
+                                .hashKey(hash)
+                                .promptVersion(2)
+                                .retryCount(0)
+                                .analysisStatus(
+                                        Analysis.AnalysisStatus.PENDING
+                                )
+                                .build()
+                );
+    }
+
+    // =====================================================
+    // ENQUEUE AI JOB
+    // =====================================================
+    private void enqueueAIJob(
+            String uploadId,
+            Long userId,
+            String hash,
+            List<Log> logs
+    ) {
+
+        AIJobDto job = AIJobDto.builder()
+                .uploadId(uploadId)
+                .userId(userId)
+                .hash(hash)
+                .logs(logs)
                 .build();
+
+        aiQueueService.enqueue(job);
+
+        log.info(
+                "AI enqueue uploadId={} queueSize={}",
+                uploadId,
+                aiQueueService.size()
+        );
+    }
+
+    // =====================================================
+    // ENRICH CONTEXT
+    // =====================================================
+    private List<Log> enrichWithContext(
+            List<Log> errorLogs
+    ) {
+
+        if (errorLogs.isEmpty()) {
+            return errorLogs;
+        }
+
+        String uploadId =
+                errorLogs.get(0)
+                        .getUpload()
+                        .getUploadId();
+
+        List<Log> allLogs =
+                logRepository
+                        .findTop500ByUploadUploadIdOrderByLogTimestampAsc(
+                                uploadId
+                        );
+
+        Set<Log> enriched =
+                new LinkedHashSet<>();
+
+        for (Log errorLog : errorLogs) {
+
+            int index =
+                    allLogs.indexOf(errorLog);
+
+            if (index == -1) {
+
+                enriched.add(errorLog);
+
+                continue;
+            }
+
+            int start =
+                    Math.max(0, index - 2);
+
+            int end =
+                    Math.min(
+                            allLogs.size(),
+                            index + 3
+                    );
+
+            enriched.addAll(
+                    allLogs.subList(start, end)
+            );
+        }
+
+        return enriched.stream()
+                .sorted(
+                        Comparator.comparing(
+                                Log::getLogTimestamp,
+                                Comparator.nullsLast(
+                                        Comparator.naturalOrder()
+                                )
+                        )
+                )
+                .toList();
     }
 }
