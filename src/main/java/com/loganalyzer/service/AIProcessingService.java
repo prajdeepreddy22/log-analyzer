@@ -19,11 +19,14 @@ import java.util.Map;
 @Slf4j
 public class AIProcessingService {
 
-    @Value("${app.ai.retry.max-attempts:3}")
+    @Value("${app.ai.max-retries:2}")
     private int maxRetries;
 
     private final AnalysisRepository analysisRepository;
-    private final PromptBuilderService promptBuilder;
+
+    // CHANGED
+    private final PromptBuilderService promptBuilderService;
+
     private final OpenAIClient openAIClient;
     private final RootCauseDetectorService rootCauseDetectorService;
     private final MetricsService metricsService;
@@ -85,7 +88,8 @@ public class AIProcessingService {
                 // BUILD PROMPT
                 // =====================================================
                 String prompt =
-                        promptBuilder.buildPrompt(logs);
+                        promptBuilderService
+                                .buildAnalysisPrompt(logs);
 
                 log.info(
                         "Prompt generated uploadId={} promptLength={}",
@@ -150,7 +154,7 @@ public class AIProcessingService {
                 );
 
                 analysis.setSeverityScore(
-                        getIntValue(
+                        getSeverityScore(
                                 response,
                                 "severityScore",
                                 "severity_score"
@@ -287,7 +291,7 @@ public class AIProcessingService {
     // =========================================================
     // HELPER — INTEGER VALUE
     // =========================================================
-    private Integer getIntValue(
+    private Integer getSeverityScore(
             Map<String, Object> map,
             String... keys
     ) {
@@ -300,16 +304,18 @@ public class AIProcessingService {
 
                 try {
 
-                    return Integer.parseInt(
+                    int score = Integer.parseInt(
                             value.toString()
                     );
+
+                    return Math.max(1, Math.min(5, score));
 
                 } catch (Exception ignored) {
                 }
             }
         }
 
-        return 0;
+        return 1;
     }
 
     // =========================================================

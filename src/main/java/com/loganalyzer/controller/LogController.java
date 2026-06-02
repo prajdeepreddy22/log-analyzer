@@ -57,6 +57,7 @@ public class LogController {
     @GetMapping("/{uploadId}")
     public PageResponse<LogResponse> getLogs(
             @PathVariable String uploadId,
+            @RequestParam(required = false) com.loganalyzer.entity.Log.LogLevel level,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "logTimestamp") String sortBy,
@@ -69,7 +70,37 @@ public class LogController {
 
         log.info("Fetching logs uploadId={} userId={}", uploadId, userId);
 
+        if (level != null) {
+            LogFilterRequest filter = new LogFilterRequest();
+            filter.setLevel(level);
+            return logQueryService.searchLogs(uploadId, userId, filter, pageable);
+        }
+
         return logQueryService.getLogs(uploadId, userId, pageable);
+    }
+
+    @GetMapping("/search")
+    public PageResponse<LogResponse> searchLogsGet(
+            @RequestParam("uploadId") String uploadId,
+            @RequestParam("q") String query,
+            @RequestParam(required = false) com.loganalyzer.entity.Log.LogLevel level,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "logTimestamp") String sortBy,
+            @RequestParam(defaultValue = "desc") String direction,
+            HttpServletRequest request
+    ) {
+
+        Long userId = extractUserId(request);
+        Pageable pageable = buildPageable(page, size, sortBy, direction);
+
+        LogFilterRequest filter = new LogFilterRequest();
+        filter.setKeyword(query);
+        filter.setLevel(level);
+
+        log.info("Searching logs uploadId={} userId={} query={}", uploadId, userId, query);
+
+        return logQueryService.searchLogs(uploadId, userId, filter, pageable);
     }
 
     @PostMapping("/search/{uploadId}")

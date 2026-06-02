@@ -66,10 +66,27 @@ public class AnalysisService {
                 .findTop100ByUploadUploadIdAndLevelInOrderByLogTimestampDesc(
                         uploadId,
                         List.of(
+                                Log.LogLevel.FATAL,
                                 Log.LogLevel.ERROR,
                                 Log.LogLevel.WARN
                         )
                 );
+
+        logs = logs.stream()
+                .sorted(
+                        Comparator.comparing(
+                                        (Log log) -> log.getLevel() != null
+                                                ? log.getLevel().getSeverity()
+                                                : 0
+                                )
+                                .reversed()
+                                .thenComparing(
+                                        Log::getLogTimestamp,
+                                        Comparator.nullsLast(Comparator.reverseOrder())
+                                )
+                )
+                .limit(100)
+                .toList();
 
         if (logs.isEmpty()) {
 
@@ -321,7 +338,7 @@ public class AnalysisService {
 
                 Optional<Analysis> cachedOpt =
                         analysisRepository
-                                .findFirstByHashKeyAndUserIdAndAnalysisStatus(
+                                .findFirstByHashKeyAndUserIdAndAnalysisStatusOrderByUpdatedAtDesc(
                                         hash,
                                         userId,
                                         Analysis.AnalysisStatus.COMPLETED
@@ -565,18 +582,42 @@ public class AnalysisService {
             Long userId
     ) {
 
+        uploadRepository
+                .findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Upload not found"
+                        )
+                );
+
         Analysis analysis = analysisRepository
                 .findByUploadUploadIdAndUserId(
                         uploadId,
                         userId
                 )
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Analysis not found"
-                        )
-                );
+                .orElse(null);
+
+        if (analysis == null) {
+
+            return AnalysisResponse.builder()
+                    .uploadId(uploadId)
+                    .status("NOT_STARTED")
+                    .analysisStatus("NOT_STARTED")
+                    .message("Analysis has not been triggered yet")
+                    .completed(false)
+                    .hasResult(false)
+                    .build();
+        }
+
+        String status = analysis.getAnalysisStatus().name();
+        boolean completed = analysis.getAnalysisStatus()
+                == Analysis.AnalysisStatus.COMPLETED;
+        boolean hasResult = completed
+                && analysis.getSummary() != null
+                && !analysis.getSummary().isBlank();
 
         return AnalysisResponse.builder()
+                .uploadId(uploadId)
                 .summary(analysis.getSummary())
                 .rootCause(analysis.getRootCause())
                 .developerMistake(
@@ -589,9 +630,11 @@ public class AnalysisService {
                 .severityScore(
                         analysis.getSeverityScore()
                 )
-                .status(
-                        analysis.getAnalysisStatus().name()
-                )
+                .status(status)
+                .analysisStatus(status)
+                .message(buildAnalysisMessage(status, hasResult))
+                .completed(completed)
+                .hasResult(hasResult)
                 .build();
     }
 
@@ -603,17 +646,21 @@ public class AnalysisService {
             Long userId
     ) {
 
+        uploadRepository
+                .findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Upload not found"
+                        )
+                );
+
         return analysisRepository
                 .findStatusByUploadIdAndUserId(
                         uploadId,
                         userId
                 )
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Analysis not found"
-                        )
-                )
-                .name();
+                .map(Enum::name)
+                .orElse("NOT_STARTED");
     }
 
     // =====================================================
@@ -691,6 +738,21 @@ public class AnalysisService {
                 );
     }
 
+    private String buildAnalysisMessage(String status, boolean hasResult) {
+
+        if (hasResult) {
+            return "Analysis completed";
+        }
+
+        return switch (status) {
+            case "PENDING" -> "Analysis is queued. Please wait for AI processing to start.";
+            case "PROCESSING" -> "Analysis is in progress. Results will be available shortly.";
+            case "RETRYING" -> "Analysis retry is in progress.";
+            case "FAILED" -> "Analysis failed. Please retry analysis.";
+            default -> "Analysis result is not available yet.";
+        };
+    }
+
     // =====================================================
     // ENQUEUE AI JOB
     // =====================================================
@@ -755,12 +817,12 @@ public class AnalysisService {
             }
 
             int start =
-                    Math.max(0, index - 2);
+                    Math.max(0, index - 5);
 
             int end =
                     Math.min(
                             allLogs.size(),
-                            index + 3
+                            index + 6
                     );
 
             enriched.addAll(

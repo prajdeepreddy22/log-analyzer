@@ -4,8 +4,10 @@ import com.loganalyzer.dto.ai.AIJobDto;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.Executor;
 
 @Service
 @RequiredArgsConstructor
@@ -16,7 +18,8 @@ public class AIWorkerService {
 
     private final AIProcessingService aiProcessingService;
 
-    private final ThreadPoolTaskExecutor aiExecutor;
+    @Qualifier("aiExecutor")
+    private final Executor aiExecutor;
 
     // =========================================================
     // START WORKER ON APPLICATION STARTUP

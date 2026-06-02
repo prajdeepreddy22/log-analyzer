@@ -169,6 +169,14 @@ public class RateLimitService {
                     );
         }
 
+        long dailyResetInSeconds =
+                Duration.between(
+                        LocalDateTime.now(),
+                        LocalDate.now()
+                                .plusDays(1)
+                                .atStartOfDay()
+                ).getSeconds();
+
         return RateLimitStatus.builder()
                 .userId(userId)
                 .minuteUsage(minuteUsage)
@@ -176,6 +184,8 @@ public class RateLimitService {
                 .dailyUsage(dailyUsage)
                 .dailyLimit(dailyLimit)
                 .resetInSeconds(resetInSeconds)
+                .minuteResetInSeconds(resetInSeconds)
+                .dailyResetInSeconds(Math.max(0, dailyResetInSeconds))
                 .blocked(
                         minuteUsage >= maxRequestsPerMinute
                                 || dailyUsage >= dailyLimit

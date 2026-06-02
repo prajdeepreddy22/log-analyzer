@@ -23,7 +23,7 @@ public class CacheDecisionService {
         // Find any analysis with this hash for this user
         // (from any previous upload — cross-upload cache check)
         return analysisRepository
-                .findFirstByHashKeyAndUserId(hash, userId)
+                .findFirstByHashKeyAndUserIdOrderByUpdatedAtDesc(hash, userId)
                 .map(analysis -> {
 
                     switch (analysis.getAnalysisStatus()) {

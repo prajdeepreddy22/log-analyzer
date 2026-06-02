@@ -33,12 +33,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader("Authorization");
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        String jwt = null;
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            jwt = authHeader.substring(7);
+        } else if (isStreamingChatRequest(request)) {
+            jwt = request.getParameter("token");
+        }
+
+        if (jwt == null || jwt.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
-
-        final String jwt = authHeader.substring(7);
 
         try {
             String username = jwtService.extractUsername(jwt);
@@ -70,6 +76,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         request.setAttribute("userId", userId);
                     }
 
+                    request.setAttribute("username", username);
+
                     log.debug("Authenticated user: {}", username);
                 }
             }
@@ -78,5 +86,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isStreamingChatRequest(HttpServletRequest request) {
+
+        String uri = request.getRequestURI();
+
+        return "GET".equalsIgnoreCase(request.getMethod())
+                && uri != null
+                && uri.endsWith("/chat/stream");
     }
 }

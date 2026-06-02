@@ -54,14 +54,13 @@ public class LogIngestionServiceImpl implements LogIngestionService {
 
             // Convert to entity
             List<Log> logs = parsedLogs.stream()
-                    .filter(entry -> entry.getTimestamp() != null)
                     .map(entry -> Log.builder()
                             .upload(upload)
                             .logTimestamp(entry.getTimestamp())
                             .logSequence(entry.getLogSequence())
                             .level(entry.getLevel()) // ✅ FIXED
                             .serviceName(entry.getServiceName())
-                            .message(entry.getMessage())
+                            .message(resolvePersistedMessage(entry))
                             .hashKey(entry.getHashKey())
                             .build()
                     ).toList();
@@ -94,5 +93,14 @@ public class LogIngestionServiceImpl implements LogIngestionService {
             upload.setStatus(UploadStatus.FAILED);
             uploadRepository.save(upload);
         }
+    }
+
+    private String resolvePersistedMessage(ParsedLogEntry entry) {
+
+        if (entry.getRawLog() != null && !entry.getRawLog().isBlank()) {
+            return entry.getRawLog();
+        }
+
+        return entry.getMessage();
     }
 }

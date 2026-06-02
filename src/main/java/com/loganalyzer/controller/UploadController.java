@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
-@RequestMapping("/uploads")
+@RequestMapping({"/uploads", "/upload"})
 @RequiredArgsConstructor
 @Slf4j
 public class UploadController {
@@ -94,5 +94,20 @@ public class UploadController {
                 uploadService.getUserUploads(userId, status, pageable);
 
         return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{uploadId}")
+    public ResponseEntity<Void> deleteUpload(
+            @PathVariable String uploadId,
+            HttpServletRequest request
+    ) {
+
+        Long userId = extractUserId(request);
+
+        log.info("Deleting upload uploadId={} userId={}", uploadId, userId);
+
+        uploadService.deleteUpload(uploadId, userId);
+
+        return ResponseEntity.noContent().build();
     }
 }

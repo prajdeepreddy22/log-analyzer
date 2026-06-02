@@ -22,7 +22,11 @@ public class HashKeyService {
     // =========================
     public String computeHash(ParsedLogEntry entry) {
 
-        String message = safe(entry.getMessage());
+        String message = safe(
+                entry.getRawLog() != null && !entry.getRawLog().isBlank()
+                        ? entry.getRawLog()
+                        : entry.getMessage()
+        );
         String normalized = normalize(message);
         String service = safe(entry.getServiceName());
         LogLevel level = entry.getLevel() != null ? entry.getLevel() : LogLevel.UNKNOWN;

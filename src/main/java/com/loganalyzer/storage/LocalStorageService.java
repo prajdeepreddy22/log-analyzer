@@ -39,7 +39,8 @@ public class LocalStorageService implements StorageService {
             throw new StorageException("File name is missing");
         }
 
-        Path filePath = directory.resolve(originalFileName);
+        String safeFileName = Paths.get(originalFileName).getFileName().toString();
+        Path filePath = directory.resolve(safeFileName);
 
         try (InputStream inputStream = file.getInputStream()) {
             Files.copy(inputStream, filePath, StandardCopyOption.REPLACE_EXISTING);

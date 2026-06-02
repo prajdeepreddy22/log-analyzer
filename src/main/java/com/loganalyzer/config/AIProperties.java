@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "ai")
+@ConfigurationProperties(prefix = "app.ai")
 public class AIProperties {
 
     // =====================================================

@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,7 +39,7 @@ public class StreamingChatController {
             value = "/stream",
             produces = MediaType.TEXT_EVENT_STREAM_VALUE
     )
-    public SseEmitter stream(
+    public ResponseEntity<SseEmitter> stream(
             @RequestParam String message,
             @RequestParam(required = false) String uploadId,
             HttpServletRequest request
@@ -48,6 +49,18 @@ public class StreamingChatController {
         log.info("Stream request userId={} uploadId={} message={}",
                 userId, uploadId, message);
 
-        return streamingChatService.streamResponse(message, uploadId, userId);
+        if (!streamingChatService.tryStartStream(message, uploadId, userId)) {
+            log.info(
+                    "Suppressing duplicate SSE reconnect userId={} uploadId={}",
+                    userId,
+                    uploadId
+            );
+
+            return ResponseEntity.noContent().build();
+        }
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(streamingChatService.streamResponse(message, uploadId, userId));
     }
 }

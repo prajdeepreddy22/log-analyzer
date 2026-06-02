@@ -1,14 +1,41 @@
 package com.loganalyzer.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.AssertTrue;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ChatRequest {
 
-    @NotBlank(message = "Upload ID is required")
     private String uploadId;
 
-    @NotBlank(message = "Question is required")
     private String question;
+
+    private String message;
+
+    private String sessionId;
+
+    public String getQuestion() {
+
+        if (question != null && !question.isBlank()) {
+            return question;
+        }
+
+        return message;
+    }
+
+    @AssertTrue(message = "Upload ID is required")
+    public boolean isUploadIdPresent() {
+        return uploadId != null && !uploadId.isBlank();
+    }
+
+    @AssertTrue(message = "Message is required")
+    public boolean isMessagePresent() {
+        return getQuestion() != null && !getQuestion().isBlank();
+    }
 }

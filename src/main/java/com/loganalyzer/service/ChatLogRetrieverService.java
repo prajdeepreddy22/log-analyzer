@@ -73,7 +73,10 @@ public class ChatLogRetrieverService {
         return logs.stream()
                 .sorted(
                         Comparator.comparing(
-                                Log::getLogTimestamp
+                                Log::getLogTimestamp,
+                                Comparator.nullsLast(
+                                        Comparator.naturalOrder()
+                                )
                         )
                 )
                 .limit(200)

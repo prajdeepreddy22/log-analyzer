@@ -28,7 +28,7 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
     // Used by CacheDecisionService to decide SKIP/RETRY/NEW/IN_PROGRESS
     // =========================
 
-    Optional<Analysis> findFirstByHashKeyAndUserId(
+    Optional<Analysis> findFirstByHashKeyAndUserIdOrderByUpdatedAtDesc(
             String hashKey, Long userId);
 
     // =========================
@@ -37,7 +37,7 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
     // findFirst because multiple uploads can share same hash
     // =========================
 
-    Optional<Analysis> findFirstByHashKeyAndUserIdAndAnalysisStatus(
+    Optional<Analysis> findFirstByHashKeyAndUserIdAndAnalysisStatusOrderByUpdatedAtDesc(
             String hashKey, Long userId, AnalysisStatus status);
 
     // =========================

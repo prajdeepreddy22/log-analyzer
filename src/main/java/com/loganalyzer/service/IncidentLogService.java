@@ -17,7 +17,7 @@ public class IncidentLogService {
         }
 
         List<Log> sorted = logs.stream()
-                .sorted(Comparator.comparing(Log::getLogTimestamp))
+                .sorted(timestampComparator())
                 .toList();
 
         List<Log> result = new ArrayList<>();
@@ -42,8 +42,16 @@ public class IncidentLogService {
     }
 
     private boolean isCritical(Log log) {
-        return log.getLevel().name().equals("ERROR")
+        return log.getLevel() != null
+                && (log.getLevel().name().equals("ERROR")
                 || log.getLevel().name().equals("WARN")
-                || log.getLevel().name().equals("FATAL");
+                || log.getLevel().name().equals("FATAL"));
+    }
+
+    private Comparator<Log> timestampComparator() {
+        return Comparator.comparing(
+                Log::getLogTimestamp,
+                Comparator.nullsLast(Comparator.naturalOrder())
+        );
     }
 }

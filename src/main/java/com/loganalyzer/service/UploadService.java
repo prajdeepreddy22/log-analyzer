@@ -18,4 +18,6 @@ public interface UploadService {
             UploadStatus status,
             Pageable pageable
     );
+
+    void deleteUpload(String uploadId, Long userId);
 }

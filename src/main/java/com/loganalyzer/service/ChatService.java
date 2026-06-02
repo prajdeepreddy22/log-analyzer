@@ -32,7 +32,7 @@ public class ChatService {
     private final LogRepository logRepository;
     private final AnalysisRepository analysisRepository;
 
-    private final ChatPromptBuilderService chatPromptBuilderService;
+    private final PromptBuilderService promptBuilderService;
     private final ChatCacheService chatCacheService;
     private final OpenAIClient openAIClient;
 
@@ -65,6 +65,10 @@ public class ChatService {
 
     // STEP 10.10
     private final TokenOptimizationService tokenOptimizationService;
+
+    private final ChatResponseFormatterService chatResponseFormatterService;
+
+    private final RateLimitService rateLimitService;
 
     public ChatResponse askQuestion(ChatRequest request, Long userId) {
 
@@ -160,6 +164,8 @@ public class ChatService {
             throw new ResourceNotFoundException("No logs found for upload");
         }
 
+        rateLimitService.checkLimit(userId);
+
         log.info("Fetched {} raw logs", rawLogs.size());
 
         // =====================================================
@@ -199,7 +205,7 @@ public class ChatService {
         }
 
         logs = logs.stream()
-                .sorted(Comparator.comparing(Log::getLogTimestamp))
+                .sorted(timestampComparator())
                 .toList();
 
         log.info(
@@ -280,13 +286,11 @@ public class ChatService {
         // =====================================================
         // PROMPT BUILDING
         // =====================================================
-        String prompt = chatPromptBuilderService.buildPrompt(
-                request.getQuestion(),
-                logs,
-                analysisAvailable ? analysis : null,
-                ruleFindings,
-                anomalyInsights
-        );
+        String prompt =
+                promptBuilderService.buildChatPrompt(
+                        request.getQuestion(),
+                        logs
+                );
 
         // =====================================================
         // STEP 10.10 - PROMPT COMPRESSION
@@ -352,6 +356,8 @@ public class ChatService {
                     Please try again later.
                     """;
         }
+
+        answer = chatResponseFormatterService.format(answer);
 
         // =====================================================
         // CONFIDENCE SCORING
@@ -450,5 +456,12 @@ public class ChatService {
                 userId +
                 ":" +
                 normalized;
+    }
+
+    private Comparator<Log> timestampComparator() {
+        return Comparator.comparing(
+                Log::getLogTimestamp,
+                Comparator.nullsLast(Comparator.naturalOrder())
+        );
     }
 }

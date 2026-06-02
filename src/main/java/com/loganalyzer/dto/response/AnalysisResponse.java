@@ -7,6 +7,7 @@ import lombok.Data;
 @Builder
 public class AnalysisResponse {
 
+    private String uploadId;
     private String summary;
     private String rootCause;
     private String developerMistake;
@@ -14,4 +15,8 @@ public class AnalysisResponse {
     private String codeFix;
     private Integer severityScore;
     private String status;
+    private String analysisStatus;
+    private String message;
+    private boolean completed;
+    private boolean hasResult;
 }

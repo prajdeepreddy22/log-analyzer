@@ -87,16 +87,27 @@ app:
 
   # ==================== JWT ====================
   jwt:
-    secret: ${JWT_SECRET:}
+    secret: ${JWT_SECRET}
     expiration: 86400000
 
   # ==================== AI ====================
   ai:
     max-logs: 100
     max-chars: 12000
+    max-compressed-logs: 25
+    max-message-length: 180
 
-    retry:
-      max-attempts: 3
+    streaming-delay-ms: 40
+
+    max-retries: 2
+
+    queue-capacity: 500
+
+    core-pool-size: 4
+    max-pool-size: 8
+    keep-alive-seconds: 60
+
+    cache-confidence: 90
 
   # ==================== FILE UPLOAD ====================
   upload:
@@ -108,3 +119,10 @@ app:
     max-requests: 5
     window-minutes: 1
     daily-limit: 100
+
+# ==================== OPENAI ====================
+openai:
+  api:
+    key: ${OPENAI_API_KEY:dummy-key}
+
+  model: gpt-4o-mini

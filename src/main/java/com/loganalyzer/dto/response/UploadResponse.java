@@ -16,6 +16,7 @@ public class UploadResponse {
     private String uploadId;
     private String fileName;
     private Long fileSize;
+    private String fileSizeFormatted;
     private String status;
     private LocalDateTime uploadTime;
     private String message;

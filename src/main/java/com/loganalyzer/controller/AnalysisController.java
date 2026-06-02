@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/analysis")
+@RequestMapping({"/analysis", "/analyze"})
 @RequiredArgsConstructor
 @Slf4j
 public class AnalysisController {
@@ -98,9 +98,36 @@ public class AnalysisController {
                 userId
         );
 
+        String status = analysisService.getStatus(uploadId, userId);
+
         return Map.of(
+                "analysis_status",
+                status,
                 "status",
-                analysisService.getStatus(uploadId, userId)
+                status
+        );
+    }
+
+    // =====================================================
+    // RETRY ANALYSIS
+    // =====================================================
+    @PostMapping("/retry/{uploadId}")
+    public AnalysisTriggerResponse retryAnalysis(
+            @PathVariable String uploadId,
+            HttpServletRequest request) {
+
+        Long userId = getUserId(request);
+
+        log.info(
+                "Retry analysis request uploadId={} userId={}",
+                uploadId,
+                userId
+        );
+
+        return analysisService.analyze(
+                uploadId,
+                userId,
+                true
         );
     }
 

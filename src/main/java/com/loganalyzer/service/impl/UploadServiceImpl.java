@@ -11,7 +11,9 @@ import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.repository.UploadRepository;
 import com.loganalyzer.repository.UserRepository;
 import com.loganalyzer.service.FileValidationService;
+import com.loganalyzer.service.FileSizeFormatterService;
 import com.loganalyzer.service.LogIngestionService;
+import com.loganalyzer.service.MetricsService;
 import com.loganalyzer.service.UploadService;
 import com.loganalyzer.storage.StorageService;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +38,9 @@ public class UploadServiceImpl implements UploadService {
     private final UserRepository userRepository;
     private final StorageService storageService;
     private final FileValidationService fileValidationService;
+    private final FileSizeFormatterService fileSizeFormatterService;
     private final LogIngestionService logIngestionService;
+    private final MetricsService metricsService;
 
     // ==================== UPLOAD ====================
     @Override
@@ -71,6 +75,7 @@ public class UploadServiceImpl implements UploadService {
                     .build();
 
             uploadRepository.save(upload);
+            metricsService.getUploadCounter().increment();
 
             // 3. Async AFTER COMMIT
             TransactionSynchronizationManager.registerSynchronization(
@@ -87,6 +92,7 @@ public class UploadServiceImpl implements UploadService {
                     .uploadId(uploadId)
                     .fileName(file.getOriginalFilename())
                     .fileSize(file.getSize())
+                    .fileSizeFormatted(fileSizeFormatterService.format(file.getSize()))
                     .status(UploadStatus.UPLOADED.name())
                     .uploadTime(upload.getUploadTime())
                     .message("File uploaded successfully. Processing started.")
@@ -154,12 +160,40 @@ public class UploadServiceImpl implements UploadService {
         return PageResponse.from(responsePage);
     }
 
+    // ==================== DELETE ====================
+    @Override
+    @Transactional
+    public void deleteUpload(String uploadId, Long userId) {
+
+        if (uploadId == null || uploadId.isBlank()) {
+            throw new BadRequestException("Invalid uploadId");
+        }
+
+        Upload upload = uploadRepository
+                .findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Upload not found"));
+
+        String filePath = upload.getFilePath();
+
+        uploadRepository.delete(upload);
+
+        if (filePath != null && !filePath.isBlank()) {
+            try {
+                storageService.delete(filePath);
+            } catch (Exception e) {
+                log.warn("Failed to delete stored file for uploadId={}: {}", uploadId, filePath, e);
+            }
+        }
+    }
+
     // ==================== MAPPER ====================
     private UploadResponse mapToResponse(Upload upload) {
         return UploadResponse.builder()
                 .uploadId(upload.getUploadId())
                 .fileName(upload.getFileName())
                 .fileSize(upload.getFileSize())
+                .fileSizeFormatted(fileSizeFormatterService.format(upload.getFileSize()))
                 .status(upload.getStatus().name())
                 .uploadTime(upload.getUploadTime())
                 .message("Fetched successfully")

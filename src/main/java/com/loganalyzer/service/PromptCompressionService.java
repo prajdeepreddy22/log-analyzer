@@ -12,10 +12,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class PromptCompressionService {
 
-    @Value("${app.ai.compression.max-compressed-logs:25}")
+    @Value("${app.ai.max-compressed-logs:25}")
     private int maxCompressedLogs;
 
-    @Value("${app.ai.compression.max-message-length:180}")
+    @Value("${app.ai.max-message-length:180}")
     private int maxMessageLength;
 
     public List<Log> compressLogs(List<Log> logs) {
