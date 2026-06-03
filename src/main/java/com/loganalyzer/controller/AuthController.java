@@ -46,6 +46,7 @@ public class AuthController {
 
         User user = User.builder()
                 .username(request.getUsername())
+                .displayName(request.getDisplayName())
                 .email(request.getEmail())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(User.Role.USER)
@@ -67,6 +68,7 @@ public class AuthController {
                 AuthResponse.builder()
                         .token(token)
                         .username(user.getUsername())
+                        .displayName(user.getDisplayName())
                         .email(user.getEmail())
                         .role(user.getRole().name())
                         .expiresIn(appProperties.getJwt().getExpiration())
@@ -97,6 +99,7 @@ public class AuthController {
                 AuthResponse.builder()
                         .token(token)
                         .username(user.getUsername())
+                        .displayName(user.getDisplayName())
                         .email(user.getEmail())
                         .role(user.getRole().name())
                         .expiresIn(appProperties.getJwt().getExpiration())

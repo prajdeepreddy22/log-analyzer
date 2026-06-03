@@ -1,11 +1,14 @@
 package com.loganalyzer.service;
 
 import com.loganalyzer.dto.response.RateLimitStatus;
+import com.loganalyzer.entity.RateLimitUsage;
 import com.loganalyzer.exception.RateLimitExceededException;
+import com.loganalyzer.repository.RateLimitUsageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -28,6 +31,7 @@ public class RateLimitService {
     private int dailyLimit;
 
     private final MetricsService metricsService;
+    private final RateLimitUsageRepository rateLimitUsageRepository;
 
     // =====================================================
     // userId -> timestamps
@@ -37,19 +41,14 @@ public class RateLimitService {
             new ConcurrentHashMap<>();
 
     // =====================================================
-    // userId -> daily count
-    // =====================================================
-
-    private final Map<Long, Map<LocalDate, Integer>> dailyCount =
-            new ConcurrentHashMap<>();
-
-    // =====================================================
     // MAIN RATE LIMIT CHECK
     // =====================================================
 
+    @Transactional
     public void checkLimit(Long userId) {
 
         LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
 
         cleanupOldTimestamps(userId, now);
 
@@ -87,7 +86,7 @@ public class RateLimitService {
             }
 
             int todayCount =
-                    getDailyCount(userId);
+                    getDailyCount(userId, today);
 
             // =================================================
             // DAILY LIMIT
@@ -118,7 +117,7 @@ public class RateLimitService {
 
             timestamps.add(now);
 
-            incrementDailyCount(userId);
+            incrementDailyCount(userId, today);
 
             log.debug(
                     "Rate limit updated userId={} minuteCount={} dailyCount={}",
@@ -133,9 +132,11 @@ public class RateLimitService {
     // STATUS API SUPPORT
     // =====================================================
 
+    @Transactional(readOnly = true)
     public RateLimitStatus getStatus(Long userId) {
 
         LocalDateTime now = LocalDateTime.now();
+        LocalDate today = now.toLocalDate();
 
         cleanupOldTimestamps(userId, now);
 
@@ -149,7 +150,7 @@ public class RateLimitService {
                 timestamps.size();
 
         int dailyUsage =
-                getDailyCount(userId);
+                getDailyCount(userId, today);
 
         long resetInSeconds = 0;
 
@@ -168,7 +169,7 @@ public class RateLimitService {
         long dailyResetInSeconds =
                 secondsUntil(
                         now,
-                        LocalDate.now()
+                        today
                                 .plusDays(1)
                                 .atStartOfDay()
                 );
@@ -237,38 +238,33 @@ public class RateLimitService {
     // DAILY COUNT
     // =====================================================
 
-    private int getDailyCount(Long userId) {
+    private int getDailyCount(
+            Long userId,
+            LocalDate today) {
 
-        Map<LocalDate, Integer> userDaily =
-                dailyCount.getOrDefault(
-                        userId,
-                        new ConcurrentHashMap<>()
-                );
-
-        return userDaily.getOrDefault(
-                LocalDate.now(),
-                0
-        );
+        return rateLimitUsageRepository
+                .findByUserIdAndUsageDate(userId, today)
+                .map(RateLimitUsage::getUsageCount)
+                .orElse(0);
     }
 
-    private void incrementDailyCount(Long userId) {
+    private void incrementDailyCount(
+            Long userId,
+            LocalDate today) {
 
-        Map<LocalDate, Integer> userDaily =
-                dailyCount.computeIfAbsent(
-                        userId,
-                        k -> new ConcurrentHashMap<>()
-                );
+        RateLimitUsage usage =
+                rateLimitUsageRepository
+                        .findByUserIdAndUsageDate(userId, today)
+                        .orElseGet(() ->
+                                RateLimitUsage.builder()
+                                        .userId(userId)
+                                        .usageDate(today)
+                                        .usageCount(0)
+                                        .build()
+                        );
 
-        // cleanup old days
+        usage.setUsageCount(usage.getUsageCount() + 1);
 
-        userDaily.keySet().removeIf(
-                date -> date.isBefore(LocalDate.now())
-        );
-
-        userDaily.merge(
-                LocalDate.now(),
-                1,
-                Integer::sum
-        );
+        rateLimitUsageRepository.save(usage);
     }
 }
