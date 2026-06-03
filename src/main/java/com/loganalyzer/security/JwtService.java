@@ -5,12 +5,14 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import java.security.Key;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
@@ -23,6 +25,11 @@ import java.util.function.Function;
 public class JwtService {
 
     private final AppProperties appProperties;
+
+    @PostConstruct
+    void validateJwtSecret() {
+        getSigningKey();
+    }
 
     public String generateToken(UserDetails userDetails, Long userId) {
         Map<String, Object> extraClaims = new HashMap<>();
@@ -80,8 +87,28 @@ public class JwtService {
     }
 
     private Key getSigningKey() {
-        byte[] keyBytes = Base64.getDecoder()
-                .decode(appProperties.getJwt().getSecret());
+        byte[] keyBytes = getSecretBytes(appProperties.getJwt().getSecret());
         return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    private byte[] getSecretBytes(String secret) {
+        byte[] rawBytes = secret.getBytes(StandardCharsets.UTF_8);
+
+        try {
+            byte[] decodedBytes = Base64.getDecoder().decode(secret);
+            if (decodedBytes.length >= 32) {
+                return decodedBytes;
+            }
+        } catch (IllegalArgumentException ex) {
+            log.debug("JWT secret is not Base64 encoded; using raw secret bytes");
+        }
+
+        if (rawBytes.length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be at least 32 characters when using a plain text secret, "
+                            + "or decode to at least 32 bytes when using Base64");
+        }
+
+        return rawBytes;
     }
 }

@@ -49,7 +49,9 @@ public class RateLimitService {
 
     public void checkLimit(Long userId) {
 
-        cleanupOldTimestamps(userId);
+        LocalDateTime now = LocalDateTime.now();
+
+        cleanupOldTimestamps(userId, now);
 
         List<LocalDateTime> timestamps =
                 minuteWindow.computeIfAbsent(
@@ -60,8 +62,6 @@ public class RateLimitService {
                 );
 
         synchronized (timestamps) {
-
-            LocalDateTime now = LocalDateTime.now();
 
             // =================================================
             // MINUTE LIMIT
@@ -135,7 +135,9 @@ public class RateLimitService {
 
     public RateLimitStatus getStatus(Long userId) {
 
-        cleanupOldTimestamps(userId);
+        LocalDateTime now = LocalDateTime.now();
+
+        cleanupOldTimestamps(userId, now);
 
         List<LocalDateTime> timestamps =
                 minuteWindow.getOrDefault(
@@ -160,22 +162,16 @@ public class RateLimitService {
                     oldest.plusMinutes(windowMinutes);
 
             resetInSeconds =
-                    Math.max(
-                            0,
-                            Duration.between(
-                                    LocalDateTime.now(),
-                                    expiry
-                            ).getSeconds()
-                    );
+                    secondsUntil(now, expiry);
         }
 
         long dailyResetInSeconds =
-                Duration.between(
-                        LocalDateTime.now(),
+                secondsUntil(
+                        now,
                         LocalDate.now()
                                 .plusDays(1)
                                 .atStartOfDay()
-                ).getSeconds();
+                );
 
         return RateLimitStatus.builder()
                 .userId(userId)
@@ -198,10 +194,13 @@ public class RateLimitService {
     // =====================================================
 
     private void cleanupOldTimestamps(Long userId) {
+        cleanupOldTimestamps(userId, LocalDateTime.now());
+    }
+
+    private void cleanupOldTimestamps(Long userId, LocalDateTime now) {
 
         LocalDateTime cutoff =
-                LocalDateTime.now()
-                        .minusMinutes(windowMinutes);
+                now.minusMinutes(windowMinutes);
 
         minuteWindow.computeIfPresent(
                 userId,
@@ -210,13 +209,28 @@ public class RateLimitService {
                     synchronized (timestamps) {
 
                         timestamps.removeIf(
-                                ts -> ts.isBefore(cutoff)
+                                ts -> !ts.isAfter(cutoff)
                         );
 
                         return timestamps;
                     }
                 }
         );
+    }
+
+    private long secondsUntil(
+            LocalDateTime now,
+            LocalDateTime target) {
+
+        long millis =
+                Duration.between(now, target)
+                        .toMillis();
+
+        if (millis <= 0) {
+            return 0;
+        }
+
+        return (long) Math.ceil(millis / 1000.0);
     }
 
     // =====================================================

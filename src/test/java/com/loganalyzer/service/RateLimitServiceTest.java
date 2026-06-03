@@ -53,4 +53,26 @@ class RateLimitServiceTest {
         assertThat(status.getMinuteResetInSeconds()).isZero();
         assertThat(status.getDailyResetInSeconds()).isPositive();
     }
+
+    @Test
+    void minuteResetShouldRemainPositiveDuringActiveWindow() {
+
+        MetricsService metricsService = mock(MetricsService.class);
+        when(metricsService.getRateLimitCounter()).thenReturn(mock(Counter.class));
+
+        RateLimitService service = new RateLimitService(metricsService);
+        ReflectionTestUtils.setField(service, "maxRequestsPerMinute", 5);
+        ReflectionTestUtils.setField(service, "windowMinutes", 1);
+        ReflectionTestUtils.setField(service, "dailyLimit", 100);
+
+        service.checkLimit(1L);
+
+        RateLimitStatus status = service.getStatus(1L);
+
+        assertThat(status.getMinuteUsage()).isEqualTo(1);
+        assertThat(status.getMinuteResetInSeconds())
+                .isBetween(1L, 60L);
+        assertThat(status.getMinuteResetTimeFormatted())
+                .matches("00H (00|01)M [0-5][0-9]s|00H 01M 00s");
+    }
 }

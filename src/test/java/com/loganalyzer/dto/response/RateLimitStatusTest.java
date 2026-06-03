@@ -17,7 +17,7 @@ class RateLimitStatusTest {
                 .dailyLimit(100)
                 .resetInSeconds(30)
                 .minuteResetInSeconds(30)
-                .dailyResetInSeconds(3600)
+                .dailyResetInSeconds(9127)
                 .blocked(false)
                 .build();
 
@@ -27,6 +27,9 @@ class RateLimitStatusTest {
         assertThat(status.getMinuteRemaining()).isEqualTo(3);
         assertThat(status.getDailyRemaining()).isEqualTo(93);
         assertThat(status.getMinuteResetInSeconds()).isEqualTo(30);
-        assertThat(status.getDailyResetInSeconds()).isEqualTo(3600);
+        assertThat(status.getDailyResetInSeconds()).isEqualTo(9127);
+        assertThat(status.getResetTimeFormatted()).isEqualTo("00H 00M 30s");
+        assertThat(status.getMinuteResetTimeFormatted()).isEqualTo("00H 00M 30s");
+        assertThat(status.getDailyResetTimeFormatted()).isEqualTo("02H 32M 07s");
     }
 }
