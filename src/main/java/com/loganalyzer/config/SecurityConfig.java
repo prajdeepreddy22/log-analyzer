@@ -48,7 +48,8 @@ public class SecurityConfig {
             "/swagger-ui.html",
 
             // ACTUATOR
-            "/actuator/**",
+            "/actuator/health",
+            "/actuator/info",
 
             // ERROR
             "/error"

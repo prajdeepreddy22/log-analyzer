@@ -1,6 +1,7 @@
 package com.loganalyzer.storage;
 
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -11,9 +12,10 @@ import java.time.LocalDate;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class LocalStorageService implements StorageService {
 
-    private static final String BASE_DIR = "uploads";
+    private final StorageProperties storageProperties;
 
     @Override
     public String store(MultipartFile file, String uploadId) throws IOException {
@@ -21,7 +23,7 @@ public class LocalStorageService implements StorageService {
         LocalDate today = LocalDate.now();
 
         String dirPath = String.format("%s/%d/%02d/%02d/%s",
-                BASE_DIR,
+                storageProperties.getBasePath(),
                 today.getYear(),
                 today.getMonthValue(),
                 today.getDayOfMonth(),

@@ -3,11 +3,16 @@ package com.loganalyzer.controller;
 import com.loganalyzer.config.AppProperties;
 import com.loganalyzer.dto.request.LoginRequest;
 import com.loganalyzer.dto.request.RegisterRequest;
+import com.loganalyzer.dto.request.UpdateProfileRequest;
 import com.loganalyzer.dto.response.AuthResponse;
+import com.loganalyzer.dto.response.UserProfileResponse;
 import com.loganalyzer.entity.User;
 import com.loganalyzer.exception.BadRequestException;
+import com.loganalyzer.exception.ResourceNotFoundException;
+import com.loganalyzer.exception.UnauthorizedException;
 import com.loganalyzer.repository.UserRepository;
 import com.loganalyzer.security.JwtService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +35,16 @@ public class AuthController {
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
     private final AppProperties appProperties;
+
+    private Long extractUserId(HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+
+        if (userId == null) {
+            throw new UnauthorizedException("Unauthorized");
+        }
+
+        return userId;
+    }
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
@@ -105,5 +120,44 @@ public class AuthController {
                         .expiresIn(appProperties.getJwt().getExpiration())
                         .build()
         );
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileResponse> getCurrentUser(
+            HttpServletRequest request) {
+
+        Long userId = extractUserId(request);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        return ResponseEntity.ok(toProfileResponse(user));
+    }
+
+    @PatchMapping("/profile")
+    public ResponseEntity<UserProfileResponse> updateProfile(
+            @Valid @RequestBody UpdateProfileRequest request,
+            HttpServletRequest servletRequest) {
+
+        Long userId = extractUserId(servletRequest);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        user.setDisplayName(request.getDisplayName().trim());
+
+        User savedUser = userRepository.save(user);
+
+        return ResponseEntity.ok(toProfileResponse(savedUser));
+    }
+
+    private UserProfileResponse toProfileResponse(User user) {
+        return UserProfileResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .displayName(user.getDisplayName())
+                .email(user.getEmail())
+                .role(user.getRole().name())
+                .build();
     }
 }
