@@ -1,0 +1,14 @@
+.git
+.gitignore
+.idea
+*.iml
+
+.env
+.env.*
+!.env.example
+
+target
+uploads
+*.log
+
+HELP.md

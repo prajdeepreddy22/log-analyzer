@@ -88,36 +88,73 @@ limit is stored in MySQL. Run one backend instance for the portfolio demo.
 Keep the AI allowance low and configure an OpenAI project budget to limit
 unexpected usage.
 
-## Railway Portfolio Deployment
+## Docker
 
-Railway can deploy this repository directly using Railpack. The included
-`railway.toml` configures the actuator health check and restart policy.
+Build the production image:
 
-1. Create a Railway project and add its MySQL template.
-2. Add this GitHub repository as a service.
-3. Configure these backend service variables:
+```powershell
+docker build -t log-analyzer-backend .
+```
+
+Run it with environment variables supplied from a local ignored `.env` file:
+
+```powershell
+docker run --rm --env-file .env -p 8080:8080 log-analyzer-backend
+```
+
+Verify:
+
+```text
+http://localhost:8080/api/actuator/health
+```
+
+## AWS Portfolio Deployment
+
+The recommended portfolio architecture is:
+
+```text
+Frontend hosting -> Elastic Beanstalk Docker backend -> Amazon RDS MySQL
+```
+
+Elastic Beanstalk builds the root `Dockerfile`, runs the container on EC2, and
+uses the health-check configuration under `.ebextensions`.
+
+1. Create an Amazon RDS MySQL 8 database.
+2. Ensure the RDS security group allows MySQL port `3306` only from the
+   Elastic Beanstalk instance security group.
+3. Create an Elastic Beanstalk web-server environment using the Docker
+   platform on Amazon Linux 2023.
+4. Deploy this repository with the EB CLI or upload a source bundle containing
+   the repository files.
+5. Configure these Elastic Beanstalk environment properties:
 
    ```text
-   DB_URL=jdbc:mysql://${{MySQL.MYSQLHOST}}:${{MySQL.MYSQLPORT}}/${{MySQL.MYSQLDATABASE}}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-   DB_USERNAME=${{MySQL.MYSQLUSER}}
-   DB_PASSWORD=${{MySQL.MYSQLPASSWORD}}
-   JWT_SECRET=<generate-a-random-secret-with-at-least-32-characters>
-   OPENAI_API_KEY=<your-restricted-openai-project-key>
-   CORS_ALLOWED_ORIGINS=<set-this-after-the-frontend-is-deployed>
-   STORAGE_BASE_PATH=/tmp/log-analyzer-uploads
+   DB_URL=jdbc:mysql://<rds-endpoint>:3306/log_analyzer?sslMode=REQUIRED&serverTimezone=UTC
+   DB_USERNAME=<rds-username>
+   DB_PASSWORD=<rds-password>
+   JWT_SECRET=<random-secret-with-at-least-32-characters>
+   OPENAI_API_KEY=<restricted-openai-project-key>
+   CORS_ALLOWED_ORIGINS=<deployed-frontend-https-origin>
+   STORAGE_BASE_PATH=/app/uploads
    APP_LOG_LEVEL=INFO
    SQL_LOG_LEVEL=WARN
    ACTUATOR_HEALTH_DETAILS=never
    ```
 
-4. Generate a Railway domain for the backend service.
-5. Verify:
+6. Verify the backend:
 
    ```text
-   https://<backend-domain>/api/actuator/health
+   http://<elastic-beanstalk-domain>/api/actuator/health
    ```
 
-Railway deployment filesystems are ephemeral. Using `/tmp` makes that
-limitation explicit: uploaded source files can disappear after restart, while
-ingested logs and analysis records remain in MySQL. This is acceptable for the
-portfolio demo because files are processed immediately.
+7. For HTTPS, attach an ACM certificate to the Elastic Beanstalk Application
+   Load Balancer and redirect HTTP to HTTPS.
+
+Do not make the RDS database publicly accessible. Do not place production
+secrets in the Docker image, `Dockerfile`, source bundle, or GitHub.
+
+The container filesystem is not durable across replacement instances. Uploaded
+source files can disappear after redeployment, while ingested logs and analysis
+records remain in RDS. This is acceptable for this single-instance portfolio
+demo because files are processed immediately. Use Amazon S3 if durable uploaded
+files become a requirement.
