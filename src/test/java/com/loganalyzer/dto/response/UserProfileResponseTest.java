@@ -14,9 +14,12 @@ class UserProfileResponseTest {
                 .displayName("Rajdeep")
                 .email("raj@example.com")
                 .role("USER")
+                .message("Profile updated successfully")
                 .build();
 
         assertThat(response.getId()).isEqualTo(1L);
         assertThat(response.getDisplayName()).isEqualTo("Rajdeep");
+        assertThat(response.getMessage())
+                .isEqualTo("Profile updated successfully");
     }
 }

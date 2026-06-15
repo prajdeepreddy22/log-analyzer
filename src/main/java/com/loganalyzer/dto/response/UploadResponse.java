@@ -20,4 +20,5 @@ public class UploadResponse {
     private String status;
     private LocalDateTime uploadTime;
     private String message;
+    private String errorMessage;
 }

@@ -13,4 +13,5 @@ public class UploadStatusResponse {
     private int totalLogs;
     private int errorCount;
     private int warnCount;
+    private String errorMessage;
 }

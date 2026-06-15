@@ -18,6 +18,8 @@ public class AIWorkerService {
 
     private final AIProcessingService aiProcessingService;
 
+    private final AnalysisFailureService analysisFailureService;
+
     @Qualifier("aiExecutor")
     private final Executor aiExecutor;
 
@@ -76,19 +78,32 @@ public class AIWorkerService {
 
                 Thread.currentThread().interrupt();
 
-                log.error(
-                        "AI Worker interrupted",
-                        e
-                );
+                log.info("AI Worker interrupted during shutdown");
 
                 break;
 
             } catch (Exception e) {
 
                 log.error(
-                        "AI Worker processing failed",
-                        e
+                        "AI Worker processing failed type={}",
+                        e.getClass().getSimpleName()
                 );
+
+                if (job != null) {
+                    try {
+                        analysisFailureService.markFailed(
+                                job.getUploadId(),
+                                job.getUserId(),
+                                "Analysis worker failed"
+                        );
+                    } catch (Exception persistenceException) {
+                        log.error(
+                                "Unable to persist worker failure uploadId={}",
+                                job.getUploadId(),
+                                persistenceException
+                        );
+                    }
+                }
 
             } finally {
 

@@ -4,6 +4,8 @@ import com.loganalyzer.exception.FileValidationException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Locale;
+
 @Service
 public class FileValidationService {
 
@@ -21,8 +23,12 @@ public class FileValidationService {
 
         String name = file.getOriginalFilename();
 
-        if (name == null ||
-                !(name.endsWith(".log") || name.endsWith(".txt"))) {
+        String normalizedName = name == null
+                ? ""
+                : name.toLowerCase(Locale.ROOT);
+
+        if (!(normalizedName.endsWith(".log")
+                || normalizedName.endsWith(".txt"))) {
             throw new FileValidationException("Only .log and .txt allowed");
         }
     }

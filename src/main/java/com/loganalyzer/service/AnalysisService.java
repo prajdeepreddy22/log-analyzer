@@ -29,6 +29,7 @@ import java.util.Set;
 public class AnalysisService {
 
     private final AnalysisRepository analysisRepository;
+    private final AnalysisPersistenceService analysisPersistenceService;
     private final LogRepository logRepository;
     private final UploadRepository uploadRepository;
     private final HashKeyService hashKeyService;
@@ -36,6 +37,7 @@ public class AnalysisService {
     private final CacheDecisionService cacheDecisionService;
     private final RateLimitService rateLimitService;
     private final MetricsService metricsService;
+    private final ConfidenceScoreService confidenceScoreService;
 
     // =====================================================
     // MAIN ANALYSIS API
@@ -68,7 +70,8 @@ public class AnalysisService {
                         List.of(
                                 Log.LogLevel.FATAL,
                                 Log.LogLevel.ERROR,
-                                Log.LogLevel.WARN
+                                Log.LogLevel.WARN,
+                                Log.LogLevel.UNKNOWN
                         )
                 );
 
@@ -91,7 +94,7 @@ public class AnalysisService {
         if (logs.isEmpty()) {
 
             throw new ResourceNotFoundException(
-                    "No ERROR or WARN logs found to analyze"
+                    "No FATAL, ERROR, WARN or UNKNOWN logs found to analyze"
             );
         }
 
@@ -134,6 +137,15 @@ public class AnalysisService {
                         == Analysis.AnalysisStatus.PENDING
                         || existing.getAnalysisStatus()
                         == Analysis.AnalysisStatus.RETRYING) {
+
+                    if (!aiQueueService.isActive(existing.getHashKey())) {
+                        return recoverStaleAnalysis(
+                                existing,
+                                uploadId,
+                                userId,
+                                logs
+                        );
+                    }
 
                     return AnalysisTriggerResponse.builder()
                             .status(
@@ -189,8 +201,9 @@ public class AnalysisService {
             analysis.setFixSuggestion(null);
             analysis.setCodeFix(null);
             analysis.setSeverityScore(null);
+            analysis.setConfidenceScore(null);
 
-            analysisRepository.save(analysis);
+            analysisPersistenceService.save(analysis);
 
             // =====================================================
             // ENQUEUE
@@ -241,6 +254,15 @@ public class AnalysisService {
 
                 case PROCESSING:
 
+                    if (!aiQueueService.isActive(existing.getHashKey())) {
+                        return recoverStaleAnalysis(
+                                existing,
+                                uploadId,
+                                userId,
+                                logs
+                        );
+                    }
+
                     return AnalysisTriggerResponse.builder()
                             .status("PROCESSING")
                             .message(
@@ -252,6 +274,15 @@ public class AnalysisService {
 
                 case PENDING:
 
+                    if (!aiQueueService.isActive(existing.getHashKey())) {
+                        return recoverStaleAnalysis(
+                                existing,
+                                uploadId,
+                                userId,
+                                logs
+                        );
+                    }
+
                     return AnalysisTriggerResponse.builder()
                             .status("QUEUED")
                             .message(
@@ -262,6 +293,15 @@ public class AnalysisService {
                             .build();
 
                 case RETRYING:
+
+                    if (!aiQueueService.isActive(existing.getHashKey())) {
+                        return recoverStaleAnalysis(
+                                existing,
+                                uploadId,
+                                userId,
+                                logs
+                        );
+                    }
 
                     return AnalysisTriggerResponse.builder()
                             .status("RETRYING")
@@ -300,7 +340,7 @@ public class AnalysisService {
 
                     existing.setErrorMessage(null);
 
-                    analysisRepository.save(existing);
+                    analysisPersistenceService.save(existing);
 
                     enqueueAIJob(
                             uploadId,
@@ -378,13 +418,22 @@ public class AnalysisService {
                             cached.getSeverityScore()
                     );
 
+                    newAnalysis.setConfidenceScore(
+                            cached.getConfidenceScore() != null
+                                    ? cached.getConfidenceScore()
+                                    : confidenceScoreService.calculate(
+                                            logs,
+                                            cached.getRootCause()
+                                    )
+                    );
+
                     newAnalysis.setAnalysisStatus(
                             Analysis.AnalysisStatus.COMPLETED
                     );
 
                     newAnalysis.setErrorMessage(null);
 
-                    analysisRepository.save(newAnalysis);
+                    analysisPersistenceService.save(newAnalysis);
 
                     metricsService
                             .getCacheHitCounter()
@@ -434,7 +483,7 @@ public class AnalysisService {
 
                 newAnalysis.setErrorMessage(null);
 
-                analysisRepository.save(newAnalysis);
+                analysisPersistenceService.save(newAnalysis);
 
                 enqueueAIJob(
                         uploadId,
@@ -499,7 +548,7 @@ public class AnalysisService {
 
                 retryAnalysis.setErrorMessage(null);
 
-                analysisRepository.save(retryAnalysis);
+                analysisPersistenceService.save(retryAnalysis);
 
                 enqueueAIJob(
                         uploadId,
@@ -548,7 +597,7 @@ public class AnalysisService {
 
                 analysis.setErrorMessage(null);
 
-                analysisRepository.save(analysis);
+                analysisPersistenceService.save(analysis);
 
                 enqueueAIJob(
                         uploadId,
@@ -568,7 +617,7 @@ public class AnalysisService {
             }
 
             default:
-                throw new RuntimeException(
+                throw new IllegalStateException(
                         "Unexpected cache decision"
                 );
         }
@@ -628,11 +677,28 @@ public class AnalysisService {
                 )
                 .codeFix(analysis.getCodeFix())
                 .severityScore(
-                        analysis.getSeverityScore()
+                        SeverityScoreMapper.toApiValue(
+                                analysis.getSeverityScore()
+                        )
+                )
+                .confidenceScore(
+                        ConfidenceScoreMapper.toApiValue(
+                                analysis.getConfidenceScore()
+                        )
                 )
                 .status(status)
                 .analysisStatus(status)
-                .message(buildAnalysisMessage(status, hasResult))
+                .message(buildAnalysisMessage(
+                        status,
+                        hasResult,
+                        analysis.getErrorMessage()
+                ))
+                .errorMessage(
+                        analysis.getAnalysisStatus()
+                                == Analysis.AnalysisStatus.FAILED
+                                ? analysis.getErrorMessage()
+                                : null
+                )
                 .completed(completed)
                 .hasResult(hasResult)
                 .build();
@@ -693,8 +759,15 @@ public class AnalysisService {
                                 )
                                 .severityScore(
                                         a.getSeverityScore() != null
-                                                ? a.getSeverityScore()
+                                                ? SeverityScoreMapper.toApiValue(
+                                                        a.getSeverityScore()
+                                                )
                                                 : 0
+                                )
+                                .confidenceScore(
+                                        ConfidenceScoreMapper.toApiValue(
+                                                a.getConfidenceScore()
+                                        )
                                 )
                                 .createdAt(a.getCreatedAt())
                                 .build()
@@ -738,7 +811,45 @@ public class AnalysisService {
                 );
     }
 
-    private String buildAnalysisMessage(String status, boolean hasResult) {
+    private AnalysisTriggerResponse recoverStaleAnalysis(
+            Analysis analysis,
+            String uploadId,
+            Long userId,
+            List<Log> logs
+    ) {
+
+        log.warn(
+                "Recovering stale analysis job uploadId={} previousStatus={} hash={}",
+                uploadId,
+                analysis.getAnalysisStatus(),
+                analysis.getHashKey()
+        );
+
+        analysis.setAnalysisStatus(Analysis.AnalysisStatus.PENDING);
+        analysis.setErrorMessage(null);
+
+        analysisPersistenceService.save(analysis);
+
+        enqueueAIJob(
+                uploadId,
+                userId,
+                analysis.getHashKey(),
+                logs
+        );
+
+        return AnalysisTriggerResponse.builder()
+                .status("QUEUED")
+                .message("Analysis queue recovered after restart")
+                .uploadId(uploadId)
+                .canForce(false)
+                .build();
+    }
+
+    private String buildAnalysisMessage(
+            String status,
+            boolean hasResult,
+            String failureReason
+    ) {
 
         if (hasResult) {
             return "Analysis completed";
@@ -748,7 +859,9 @@ public class AnalysisService {
             case "PENDING" -> "Analysis is queued. Please wait for AI processing to start.";
             case "PROCESSING" -> "Analysis is in progress. Results will be available shortly.";
             case "RETRYING" -> "Analysis retry is in progress.";
-            case "FAILED" -> "Analysis failed. Please retry analysis.";
+            case "FAILED" -> failureReason == null || failureReason.isBlank()
+                    ? "Analysis failed. Please retry analysis."
+                    : "Analysis failed: " + failureReason;
             default -> "Analysis result is not available yet.";
         };
     }

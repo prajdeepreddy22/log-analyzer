@@ -39,7 +39,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-    baseline-on-migrate: true
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
     validate-on-migrate: true
 
   # ==================== JACKSON ====================
@@ -48,6 +48,11 @@ spring:
       write-dates-as-timestamps: false
 
     time-zone: UTC
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
 
 # ==================== SERVER ====================
 server:
@@ -88,7 +93,7 @@ app:
   # ==================== JWT ====================
   jwt:
     secret: ${JWT_SECRET}
-    expiration: 86400000
+    expiration: ${JWT_EXPIRATION:86400000}
 
   # ==================== AI ====================
   ai:
@@ -123,7 +128,7 @@ app:
 # ==================== OPENAI ====================
 openai:
   api:
-    key: ${OPENAI_API_KEY:dummy-key}
+    key: ${OPENAI_API_KEY}
 
   model: gpt-4o-mini
 

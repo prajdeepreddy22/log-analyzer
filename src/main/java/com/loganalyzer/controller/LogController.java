@@ -98,7 +98,12 @@ public class LogController {
         filter.setKeyword(query);
         filter.setLevel(level);
 
-        log.info("Searching logs uploadId={} userId={} query={}", uploadId, userId, query);
+        log.info(
+                "Searching logs uploadId={} userId={} queryLength={}",
+                uploadId,
+                userId,
+                query.length()
+        );
 
         return logQueryService.searchLogs(uploadId, userId, filter, pageable);
     }

@@ -4,31 +4,38 @@ import com.loganalyzer.entity.Log;
 import com.loganalyzer.entity.Log.LogLevel;
 import com.loganalyzer.entity.Upload;
 import com.loganalyzer.entity.UploadStatus;
+import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.parser.LogParserService;
 import com.loganalyzer.parser.ParsedLogEntry;
 import com.loganalyzer.repository.LogRepository;
 import com.loganalyzer.repository.UploadRepository;
 import com.loganalyzer.service.LogIngestionService;
+import com.loganalyzer.service.UploadFailureService;
+import com.loganalyzer.storage.StorageException;
 import com.loganalyzer.storage.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class LogIngestionServiceImpl implements LogIngestionService {
+
+    private static final int MAX_PERSISTED_MESSAGE_CHARACTERS = 16_000;
+    private static final String TRUNCATION_MARKER =
+            "\n[Log entry truncated during ingestion]";
 
     private final UploadRepository uploadRepository;
     private final LogRepository logRepository;
     private final StorageService storageService;
     private final LogParserService logParserService;
+    private final UploadFailureService uploadFailureService;
 
     @Override
     @Async
@@ -36,71 +43,117 @@ public class LogIngestionServiceImpl implements LogIngestionService {
 
         log.info("Starting log ingestion for uploadId={}", uploadId);
 
-        Upload upload = uploadRepository.findById(uploadId)
-                .orElseThrow(() -> new RuntimeException("Upload not found"));
-
         try {
-            // PROCESSING
+            Upload upload = uploadRepository.findById(uploadId)
+                    .orElseThrow(() ->
+                            new ResourceNotFoundException("Upload not found"));
+
             upload.setStatus(UploadStatus.PROCESSING);
+            upload.setProcessingError(null);
             uploadRepository.save(upload);
 
-            // Read file
-            InputStream inputStream = storageService.read(upload.getFilePath());
+            List<ParsedLogEntry> parsedLogs;
+            try (InputStream inputStream =
+                         storageService.read(upload.getFilePath())) {
+                parsedLogs = logParserService.parse(inputStream);
+            }
 
-            // Parse logs
-            List<ParsedLogEntry> parsedLogs = logParserService.parse(inputStream);
+            log.info(
+                    "Parsed {} logs for uploadId={}",
+                    parsedLogs.size(),
+                    uploadId
+            );
 
-            log.info("Parsed {} logs for uploadId={}", parsedLogs.size(), uploadId);
-
-            // Convert to entity
             List<Log> logs = parsedLogs.stream()
                     .map(entry -> Log.builder()
                             .upload(upload)
                             .logTimestamp(entry.getTimestamp())
                             .logSequence(entry.getLogSequence())
-                            .level(entry.getLevel()) // ✅ FIXED
+                            .level(entry.getLevel())
                             .serviceName(entry.getServiceName())
                             .message(resolvePersistedMessage(entry))
                             .hashKey(entry.getHashKey())
                             .build()
-                    ).toList();
+                    )
+                    .toList();
 
-            // Save
             logRepository.saveAll(logs);
 
-            // Stats
             long errorCount = logs.stream()
-                    .filter(l -> l.getLevel() == LogLevel.ERROR)
+                    .filter(item -> item.getLevel() == LogLevel.ERROR)
                     .count();
 
             long warnCount = logs.stream()
-                    .filter(l -> l.getLevel() == LogLevel.WARN)
+                    .filter(item -> item.getLevel() == LogLevel.WARN)
                     .count();
 
             upload.setTotalLogs(logs.size());
             upload.setErrorCount((int) errorCount);
             upload.setWarnCount((int) warnCount);
             upload.setStatus(UploadStatus.COMPLETED);
-
+            upload.setProcessingError(null);
             uploadRepository.save(upload);
 
             log.info("Log ingestion completed for uploadId={}", uploadId);
 
-        } catch (Exception e) {
-
-            log.error("Log ingestion failed for uploadId={}", uploadId, e);
-
-            upload.setStatus(UploadStatus.FAILED);
-            uploadRepository.save(upload);
+        } catch (Exception exception) {
+            log.error(
+                    "Log ingestion failed uploadId={} type={}",
+                    uploadId,
+                    exception.getClass().getSimpleName()
+            );
+            persistFailure(uploadId, exception);
         }
+    }
+
+    private void persistFailure(String uploadId, Exception exception) {
+
+        try {
+            uploadFailureService.markFailed(
+                    uploadId,
+                    safeProcessingError(exception)
+            );
+        } catch (Exception persistenceException) {
+            log.error(
+                    "Unable to persist ingestion failure uploadId={}",
+                    uploadId,
+                    persistenceException
+            );
+        }
+    }
+
+    private String safeProcessingError(Exception exception) {
+
+        if (exception instanceof ResourceNotFoundException) {
+            return "Upload record was not found";
+        }
+
+        if (exception instanceof IOException
+                || exception instanceof StorageException) {
+            return "Stored file could not be read";
+        }
+
+        return "Log ingestion failed";
     }
 
     private String resolvePersistedMessage(ParsedLogEntry entry) {
 
+        String message;
+
         if (entry.getRawLog() != null && !entry.getRawLog().isBlank()) {
-            return entry.getRawLog();
+            message = entry.getRawLog();
+        } else {
+            message = entry.getMessage();
         }
 
-        return entry.getMessage();
+        if (message == null
+                || message.length() <= MAX_PERSISTED_MESSAGE_CHARACTERS) {
+            return message;
+        }
+
+        int retainedLength =
+                MAX_PERSISTED_MESSAGE_CHARACTERS - TRUNCATION_MARKER.length();
+
+        return message.substring(0, retainedLength) + TRUNCATION_MARKER;
     }
 }

@@ -48,7 +48,7 @@ public class LocalStorageService implements StorageService {
             Files.copy(inputStream, filePath, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        log.info("File stored at: {}", filePath.toAbsolutePath());
+        log.info("Upload file stored uploadId={}", uploadId);
 
         return filePath.toString();
     }
@@ -59,9 +59,9 @@ public class LocalStorageService implements StorageService {
 
         if (Files.exists(path)) {
             Files.delete(path);
-            log.info("File deleted: {}", filePath);
+            log.info("Stored upload file deleted");
         } else {
-            log.warn("File not found for deletion: {}", filePath);
+            log.warn("Stored upload file was already absent during deletion");
         }
     }
 

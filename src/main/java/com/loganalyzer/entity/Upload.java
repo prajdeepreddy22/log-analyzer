@@ -54,6 +54,9 @@ public class Upload {
     @Builder.Default
     private UploadStatus status = UploadStatus.UPLOADED;
 
+    @Column(name = "processing_error", columnDefinition = "TEXT")
+    private String processingError;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

@@ -1,6 +1,7 @@
 package com.loganalyzer.controller;
 
 import com.loganalyzer.exception.UnauthorizedException;
+import com.loganalyzer.exception.BadRequestException;
 import com.loganalyzer.service.StreamingChatService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -46,8 +47,22 @@ public class StreamingChatController {
     ) {
         Long userId = getUserId(request);
 
-        log.info("Stream request userId={} uploadId={} message={}",
-                userId, uploadId, message);
+        if (message == null || message.isBlank()) {
+            throw new BadRequestException("Message is required");
+        }
+
+        if (uploadId == null || uploadId.isBlank()) {
+            throw new BadRequestException("Upload ID is required");
+        }
+
+        streamingChatService.validateUploadAccess(uploadId, userId);
+
+        log.info(
+                "Stream request userId={} uploadId={} messageLength={}",
+                userId,
+                uploadId,
+                message.length()
+        );
 
         if (!streamingChatService.tryStartStream(message, uploadId, userId)) {
             log.info(

@@ -68,6 +68,16 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
             @Param("status") AnalysisStatus status,
             @Param("errorMessage") String errorMessage);
 
+    @Modifying
+    @Transactional
+    @Query("UPDATE Analysis a SET a.analysisStatus = :failedStatus, " +
+            "a.errorMessage = :errorMessage " +
+            "WHERE a.analysisStatus IN :interruptedStatuses")
+    int markInterruptedAnalysesAsFailed(
+            @Param("interruptedStatuses") List<AnalysisStatus> interruptedStatuses,
+            @Param("failedStatus") AnalysisStatus failedStatus,
+            @Param("errorMessage") String errorMessage);
+
     // =========================
     // STATS — used by observability / metrics
     // =========================
@@ -79,4 +89,6 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
     // =========================
 
     List<Analysis> findByUserIdOrderByCreatedAtDesc(Long userId);
+
+    List<Analysis> findByIncidentIncidentId(String incidentId);
 }

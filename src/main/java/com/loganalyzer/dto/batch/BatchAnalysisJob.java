@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
@@ -23,6 +24,10 @@ public class BatchAnalysisJob {
     private int totalUploads;
 
     private int processedUploads;
+
+    private int failedUploads;
+
+    private Map<String, String> errors;
 
     private String status;
 

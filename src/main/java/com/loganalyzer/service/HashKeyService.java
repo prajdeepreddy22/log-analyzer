@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
 @Service
 public class HashKeyService {
 
+    private static final int MAX_HASH_INPUT_CHARACTERS = 16_000;
+
     private static final Pattern EXCEPTION_PATTERN =
             Pattern.compile("([A-Za-z0-9_.]*Exception|[A-Za-z0-9_.]*Error)");
 
@@ -22,11 +24,11 @@ public class HashKeyService {
     // =========================
     public String computeHash(ParsedLogEntry entry) {
 
-        String message = safe(
+        String message = limitForHash(safe(
                 entry.getRawLog() != null && !entry.getRawLog().isBlank()
                         ? entry.getRawLog()
                         : entry.getMessage()
-        );
+        ));
         String normalized = normalize(message);
         String service = safe(entry.getServiceName());
         LogLevel level = entry.getLevel() != null ? entry.getLevel() : LogLevel.UNKNOWN;
@@ -65,7 +67,7 @@ public class HashKeyService {
 
         for (Log log : logs) {
 
-            String message = safe(log.getMessage());
+            String message = limitForHash(safe(log.getMessage()));
             String normalized = normalize(message);
             String exception = extractExceptionClass(message);
             String service = safe(log.getServiceName());
@@ -131,8 +133,11 @@ public class HashKeyService {
 
             return hex.toString();
 
-        } catch (Exception e) {
-            throw new RuntimeException("Hash generation failed", e);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(
+                    "SHA-256 is not available in this runtime",
+                    e
+            );
         }
     }
 
@@ -141,5 +146,11 @@ public class HashKeyService {
     // =========================
     private String safe(String value) {
         return value != null ? value : "UNKNOWN";
+    }
+
+    private String limitForHash(String value) {
+        return value.length() <= MAX_HASH_INPUT_CHARACTERS
+                ? value
+                : value.substring(0, MAX_HASH_INPUT_CHARACTERS);
     }
 }

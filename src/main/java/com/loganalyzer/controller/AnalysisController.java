@@ -86,7 +86,7 @@ public class AnalysisController {
     // GET STATUS ONLY
     // =====================================================
     @GetMapping("/{uploadId}/status")
-    public Map<String, String> getStatus(
+    public Map<String, Object> getStatus(
             @PathVariable String uploadId,
             HttpServletRequest request) {
 
@@ -98,14 +98,20 @@ public class AnalysisController {
                 userId
         );
 
-        String status = analysisService.getStatus(uploadId, userId);
+        AnalysisResponse analysis =
+                analysisService.getAnalysis(uploadId, userId);
 
-        return Map.of(
-                "analysis_status",
-                status,
-                "status",
-                status
-        );
+        Map<String, Object> response =
+                new java.util.LinkedHashMap<>();
+        response.put("analysis_status", analysis.getAnalysisStatus());
+        response.put("status", analysis.getStatus());
+        response.put("message", analysis.getMessage());
+
+        if (analysis.getErrorMessage() != null) {
+            response.put("error_message", analysis.getErrorMessage());
+        }
+
+        return response;
     }
 
     // =====================================================

@@ -2,6 +2,7 @@ package com.loganalyzer.client;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.loganalyzer.exception.AIProviderException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
@@ -33,8 +34,6 @@ public class OpenAIClient {
     public Map<String, Object> analyzeLogs(String prompt) {
 
         try {
-
-            log.info("OpenAI key loaded={}", apiKey != null && !apiKey.isBlank());
 
             String systemPrompt = """
                     You are a senior production incident investigator.
@@ -94,21 +93,17 @@ public class OpenAIClient {
             try (Response response = client.newCall(request).execute()) {
 
                 if (!response.isSuccessful()) {
-
-                    throw new RuntimeException(
-                            "OpenAI API failed: " +
-                                    response.code() +
-                                    " " +
-                                    response.message()
-                    );
+                    throw providerHttpException(response);
                 }
 
                 ResponseBody responseBodyObj = response.body();
 
                 if (responseBodyObj == null) {
 
-                    throw new RuntimeException(
-                            "Empty OpenAI response"
+                    throw new AIProviderException(
+                            "OpenAI returned an empty response",
+                            true,
+                            response.code()
                     );
                 }
 
@@ -128,19 +123,28 @@ public class OpenAIClient {
 
                 if (choices == null || choices.isEmpty()) {
 
-                    throw new RuntimeException(
-                            "No AI choices returned"
+                    throw new AIProviderException(
+                            "OpenAI returned no choices",
+                            true,
+                            response.code()
                     );
                 }
 
                 Map<?, ?> choice =
                         (Map<?, ?>) choices.get(0);
 
-                Map<?, ?> message =
-                        (Map<?, ?>) choice.get("message");
+                Object messageValue = choice.get("message");
 
-                String content =
-                        message.get("content").toString();
+                if (!(messageValue instanceof Map<?, ?> message)
+                        || message.get("content") == null) {
+                    throw new AIProviderException(
+                            "OpenAI returned an invalid message",
+                            true,
+                            response.code()
+                    );
+                }
+
+                String content = message.get("content").toString();
 
                 log.info(
                         "AI raw response received length={}",
@@ -151,13 +155,20 @@ public class OpenAIClient {
 
             }
 
+        } catch (AIProviderException e) {
+            throw e;
         } catch (Exception e) {
 
-            log.error("OpenAI analyzeLogs failed", e);
+            log.error(
+                    "OpenAI analyzeLogs failed type={}",
+                    e.getClass().getSimpleName()
+            );
 
-            throw new RuntimeException(
-                    "OpenAI analyze failed",
-                    e
+            throw new AIProviderException(
+                    "OpenAI analysis request failed",
+                    e,
+                    true,
+                    null
             );
         }
     }
@@ -168,8 +179,6 @@ public class OpenAIClient {
     public String askQuestion(String prompt) {
 
         try {
-
-            log.info("OpenAI key loaded={}", apiKey != null && !apiKey.isBlank());
 
             Map<String, Object> requestBody = new HashMap<>();
 
@@ -212,18 +221,17 @@ public class OpenAIClient {
             try (Response response = client.newCall(request).execute()) {
 
                 if (!response.isSuccessful()) {
-
-                    throw new RuntimeException(
-                            "OpenAI API failed"
-                    );
+                    throw providerHttpException(response);
                 }
 
                 ResponseBody responseBodyObj = response.body();
 
                 if (responseBodyObj == null) {
 
-                    throw new RuntimeException(
-                            "Empty OpenAI response"
+                    throw new AIProviderException(
+                            "OpenAI returned an empty response",
+                            true,
+                            response.code()
                     );
                 }
 
@@ -243,29 +251,45 @@ public class OpenAIClient {
 
                 if (choices == null || choices.isEmpty()) {
 
-                    throw new RuntimeException(
-                            "No AI choices returned"
+                    throw new AIProviderException(
+                            "OpenAI returned no choices",
+                            true,
+                            response.code()
                     );
                 }
 
                 Map<?, ?> choice =
                         (Map<?, ?>) choices.get(0);
 
-                Map<?, ?> message =
-                        (Map<?, ?>) choice.get("message");
+                Object messageValue = choice.get("message");
+
+                if (!(messageValue instanceof Map<?, ?> message)
+                        || message.get("content") == null) {
+                    throw new AIProviderException(
+                            "OpenAI returned an invalid message",
+                            true,
+                            response.code()
+                    );
+                }
 
                 return message.get("content").toString();
             }
 
+        } catch (AIProviderException e) {
+            throw e;
         } catch (Exception e) {
 
-            log.error("askQuestion failed", e);
+            log.error(
+                    "OpenAI chat failed type={}",
+                    e.getClass().getSimpleName()
+            );
 
-            return """
-                    AI service temporarily unavailable.
-
-                    Please retry later.
-                    """;
+            throw new AIProviderException(
+                    "OpenAI chat request failed",
+                    e,
+                    true,
+                    null
+            );
         }
     }
 
@@ -289,8 +313,10 @@ public class OpenAIClient {
 
             if (start == -1 || end == -1) {
 
-                throw new RuntimeException(
-                        "JSON not found in AI response"
+                throw new AIProviderException(
+                        "JSON not found in AI response",
+                        true,
+                        null
                 );
             }
 
@@ -302,37 +328,36 @@ public class OpenAIClient {
                     new TypeReference<>() {}
             );
 
+        } catch (AIProviderException e) {
+            throw e;
         } catch (Exception e) {
 
-            log.error("Failed parsing AI JSON", e);
+            log.error(
+                    "Failed parsing AI JSON type={}",
+                    e.getClass().getSimpleName()
+            );
 
-            return fallbackAnalysis(e);
+            throw new AIProviderException(
+                    "OpenAI returned malformed analysis JSON",
+                    e,
+                    true,
+                    null
+            );
         }
     }
 
-    // =====================================================
-    // FALLBACK RESPONSE
-    // =====================================================
-    private Map<String, Object> fallbackAnalysis(Exception e) {
+    private AIProviderException providerHttpException(Response response) {
 
-        return Map.of(
-                "summary",
-                "AI analysis failed",
+        int status = response.code();
+        boolean retryable = status == 408
+                || status == 409
+                || status == 429
+                || status >= 500;
 
-                "root_cause",
-                "Unable to determine root cause",
-
-                "developer_mistake",
-                "Insufficient AI response",
-
-                "fix_suggestion",
-                "Retry analysis or inspect logs manually",
-
-                "code_fix",
-                "N/A",
-
-                "severity_score",
-                1
+        return new AIProviderException(
+                "OpenAI API request failed with status " + status,
+                retryable,
+                status
         );
     }
 }

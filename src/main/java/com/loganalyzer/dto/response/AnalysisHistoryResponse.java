@@ -12,5 +12,6 @@ public class AnalysisHistoryResponse {
     private String uploadId;
     private String status;
     private Integer severityScore;
+    private Double confidenceScore;
     private LocalDateTime createdAt;
 }

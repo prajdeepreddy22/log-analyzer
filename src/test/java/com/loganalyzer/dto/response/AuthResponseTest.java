@@ -15,8 +15,10 @@ class AuthResponseTest {
                 .email("raj@example.com")
                 .role("USER")
                 .expiresIn(86_400_000)
+                .message("Login successful")
                 .build();
 
         assertThat(response.getDisplayName()).isEqualTo("Rajdeep");
+        assertThat(response.getMessage()).isEqualTo("Login successful");
     }
 }

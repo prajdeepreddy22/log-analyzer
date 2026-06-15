@@ -8,6 +8,7 @@ import com.loganalyzer.dto.response.AuthResponse;
 import com.loganalyzer.dto.response.UserProfileResponse;
 import com.loganalyzer.entity.User;
 import com.loganalyzer.exception.BadRequestException;
+import com.loganalyzer.exception.ConflictException;
 import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.exception.UnauthorizedException;
 import com.loganalyzer.repository.UserRepository;
@@ -17,6 +18,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -52,11 +54,11 @@ public class AuthController {
         log.info("Register request for username: {}", request.getUsername());
 
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new BadRequestException("Username already exists");
+            throw new ConflictException("Username already exists");
         }
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new BadRequestException("Email already exists");
+            throw new ConflictException("Email already exists");
         }
 
         User user = User.builder()
@@ -67,7 +69,11 @@ public class AuthController {
                 .role(User.Role.USER)
                 .build();
 
-        userRepository.save(user);
+        try {
+            userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException exception) {
+            throw resolveRegistrationConflict(request, exception);
+        }
 
         UserDetails userDetails =
                 new org.springframework.security.core.userdetails.User(
@@ -87,6 +93,7 @@ public class AuthController {
                         .email(user.getEmail())
                         .role(user.getRole().name())
                         .expiresIn(appProperties.getJwt().getExpiration())
+                        .message("Registration successful")
                         .build()
         );
     }
@@ -118,6 +125,7 @@ public class AuthController {
                         .email(user.getEmail())
                         .role(user.getRole().name())
                         .expiresIn(appProperties.getJwt().getExpiration())
+                        .message("Login successful")
                         .build()
         );
     }
@@ -131,7 +139,9 @@ public class AuthController {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        return ResponseEntity.ok(toProfileResponse(user));
+        return ResponseEntity.ok(
+                toProfileResponse(user, "Profile fetched successfully")
+        );
     }
 
     @PatchMapping("/profile")
@@ -148,16 +158,51 @@ public class AuthController {
 
         User savedUser = userRepository.save(user);
 
-        return ResponseEntity.ok(toProfileResponse(savedUser));
+        return ResponseEntity.ok(
+                toProfileResponse(savedUser, "Profile updated successfully")
+        );
     }
 
-    private UserProfileResponse toProfileResponse(User user) {
+    private UserProfileResponse toProfileResponse(
+            User user,
+            String message
+    ) {
         return UserProfileResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .displayName(user.getDisplayName())
                 .email(user.getEmail())
                 .role(user.getRole().name())
+                .message(message)
                 .build();
+    }
+
+    private ConflictException resolveRegistrationConflict(
+            RegisterRequest request,
+            DataIntegrityViolationException exception
+    ) {
+
+        String databaseMessage = exception.getMostSpecificCause().getMessage();
+        String normalizedMessage = databaseMessage == null
+                ? ""
+                : databaseMessage.toLowerCase();
+
+        if (normalizedMessage.contains("username")) {
+            return new ConflictException("Username already exists");
+        }
+
+        if (normalizedMessage.contains("email")) {
+            return new ConflictException("Email already exists");
+        }
+
+        log.warn(
+                "Registration data conflict username={} type={}",
+                request.getUsername(),
+                exception.getClass().getSimpleName()
+        );
+
+        return new ConflictException(
+                "Registration conflicts with an existing account"
+        );
     }
 }

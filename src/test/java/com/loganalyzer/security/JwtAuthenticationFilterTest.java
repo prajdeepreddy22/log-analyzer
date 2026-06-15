@@ -50,4 +50,36 @@ class JwtAuthenticationFilterTest {
 
         SecurityContextHolder.clearContext();
     }
+
+    @Test
+    void invalidTokenDoesNotAuthenticateOrExposeStackTraceToResponse()
+            throws Exception {
+
+        SecurityContextHolder.clearContext();
+
+        JwtService jwtService = mock(JwtService.class);
+        UserDetailsServiceImpl userDetailsService =
+                mock(UserDetailsServiceImpl.class);
+        JwtAuthenticationFilter filter =
+                new JwtAuthenticationFilter(jwtService, userDetailsService);
+
+        when(jwtService.extractUsername("invalid"))
+                .thenThrow(new IllegalArgumentException("secret detail"));
+
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("GET", "/api/uploads");
+        request.addHeader("Authorization", "Bearer invalid");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication())
+                .isNull();
+        assertThat(request.getAttribute("authenticationError"))
+                .isEqualTo("Invalid or expired token");
+        assertThat(response.getContentAsString())
+                .doesNotContain("secret detail");
+        verify(filterChain).doFilter(request, response);
+    }
 }

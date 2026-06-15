@@ -3,14 +3,16 @@ package com.loganalyzer.service;
 import com.loganalyzer.client.OpenAIClient;
 import com.loganalyzer.entity.Analysis;
 import com.loganalyzer.entity.Log;
+import com.loganalyzer.exception.AIProviderException;
+import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.repository.AnalysisRepository;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -23,18 +25,19 @@ public class AIProcessingService {
     private int maxRetries;
 
     private final AnalysisRepository analysisRepository;
+    private final AnalysisPersistenceService analysisPersistenceService;
 
     // CHANGED
     private final PromptBuilderService promptBuilderService;
 
     private final OpenAIClient openAIClient;
     private final RootCauseDetectorService rootCauseDetectorService;
+    private final ConfidenceScoreService confidenceScoreService;
     private final MetricsService metricsService;
 
     // =========================================================
     // MAIN AI PROCESSING
     // =========================================================
-    @Transactional
     public void processAnalysis(
             String uploadId,
             Long userId,
@@ -72,7 +75,7 @@ public class AIProcessingService {
                 Analysis analysis = analysisRepository
                         .findByUploadUploadIdAndUserId(uploadId, userId)
                         .orElseThrow(() ->
-                                new RuntimeException(
+                                new ResourceNotFoundException(
                                         "Analysis record not found for uploadId="
                                                 + uploadId
                                 )
@@ -82,7 +85,7 @@ public class AIProcessingService {
                         Analysis.AnalysisStatus.PROCESSING
                 );
 
-                analysisRepository.save(analysis);
+                analysisPersistenceService.save(analysis);
 
                 // =====================================================
                 // BUILD PROMPT
@@ -129,6 +132,20 @@ public class AIProcessingService {
 
                 analysis.setRootCause(finalRootCause);
 
+                BigDecimal confidenceScore =
+                        confidenceScoreService.calculate(
+                                logs,
+                                finalRootCause
+                        );
+
+                analysis.setConfidenceScore(confidenceScore);
+
+                log.info(
+                        "Analysis confidence rootCause={} confidenceScore={}",
+                        finalRootCause,
+                        confidenceScore
+                );
+
                 analysis.setDeveloperMistake(
                         getValue(
                                 response,
@@ -172,7 +189,7 @@ public class AIProcessingService {
 
                 analysis.setErrorMessage(null);
 
-                analysisRepository.save(analysis);
+                analysisPersistenceService.save(analysis);
 
                 // =====================================================
                 // SUCCESS METRIC
@@ -208,14 +225,16 @@ public class AIProcessingService {
                         .increment();
 
                 log.error(
-                        "AI FAILED uploadId={} hash={} attempt={}",
+                        "AI FAILED uploadId={} hash={} attempt={} type={}",
                         uploadId,
                         hash,
                         attempt,
-                        e
+                        e.getClass().getSimpleName()
                 );
 
-                if (attempt >= maxRetries) {
+                boolean retryable = isRetryable(e);
+
+                if (!retryable || attempt >= maxRetries) {
 
                     analysisRepository
                             .updateStatusAndRetryByUploadId(
@@ -226,9 +245,10 @@ public class AIProcessingService {
                             );
 
                     log.error(
-                            "AI permanently FAILED uploadId={} after {} attempts",
+                            "AI permanently FAILED uploadId={} after {} attempts retryable={}",
                             uploadId,
-                            attempt
+                            attempt,
+                            retryable
                     );
 
                     return;
@@ -259,10 +279,20 @@ public class AIProcessingService {
 
                     Thread.currentThread().interrupt();
 
-                    log.error(
+                    analysisRepository
+                            .updateStatusAndRetryByUploadId(
+                                    uploadId,
+                                    userId,
+                                    Analysis.AnalysisStatus.FAILED,
+                                    "Analysis interrupted during retry"
+                            );
+
+                    log.warn(
                             "Retry sleep interrupted uploadId={}",
                             uploadId
                     );
+
+                    return;
                 }
             }
         }
@@ -291,7 +321,7 @@ public class AIProcessingService {
     // =========================================================
     // HELPER — INTEGER VALUE
     // =========================================================
-    private Integer getSeverityScore(
+    private Byte getSeverityScore(
             Map<String, Object> map,
             String... keys
     ) {
@@ -308,14 +338,14 @@ public class AIProcessingService {
                             value.toString()
                     );
 
-                    return Math.max(1, Math.min(5, score));
+                    return SeverityScoreMapper.toEntityValue(score);
 
                 } catch (Exception ignored) {
                 }
             }
         }
 
-        return 1;
+        return SeverityScoreMapper.toEntityValue(1);
     }
 
     // =========================================================
@@ -323,12 +353,40 @@ public class AIProcessingService {
     // =========================================================
     private String safeError(Exception e) {
 
-        if (e.getMessage() == null) {
-            return e.getClass().getSimpleName();
+        if (e instanceof AIProviderException providerException) {
+            Integer status = providerException.getProviderStatus();
+
+            if (status == null) {
+                String message = providerException.getMessage();
+                return message != null && message.toLowerCase().contains("json")
+                        ? "AI service returned an invalid response"
+                        : "AI service is unavailable";
+            }
+
+            if (status == 401 || status == 403) {
+                return "AI service authentication failed";
+            }
+
+            if (status == 408) {
+                return "AI service request timed out";
+            }
+
+            if (status == 429) {
+                return "AI service rate limit exceeded";
+            }
+
+            if (status >= 500) {
+                return "AI service is temporarily unavailable";
+            }
+
+            return "AI service could not process the request";
         }
 
-        return e.getMessage().length() > 500
-                ? e.getMessage().substring(0, 500)
-                : e.getMessage();
+        return "Analysis processing failed";
+    }
+
+    private boolean isRetryable(Exception e) {
+        return !(e instanceof AIProviderException providerException)
+                || providerException.isRetryable();
     }
 }

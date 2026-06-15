@@ -38,7 +38,11 @@ public class BatchAnalysisController {
             HttpServletRequest request
     ) {
         Long userId = getUserId(request);
-        log.info("Batch analysis request userId={} uploads={}", userId, uploadIds.size());
+        log.info(
+                "Batch analysis request userId={} uploads={}",
+                userId,
+                uploadIds == null ? 0 : uploadIds.size()
+        );
 
         return batchAnalysisService.startBatchAnalysis(uploadIds, userId);
     }
@@ -54,7 +58,7 @@ public class BatchAnalysisController {
         Long userId = getUserId(request);
         log.info("Batch status request batchId={} userId={}", batchId, userId);
 
-        return batchAnalysisService.getBatchStatus(batchId);
+        return batchAnalysisService.getBatchStatus(batchId, userId);
     }
 
     // =====================================================

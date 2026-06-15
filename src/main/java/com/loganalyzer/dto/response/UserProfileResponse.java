@@ -16,4 +16,5 @@ public class UserProfileResponse {
     private String displayName;
     private String email;
     private String role;
+    private String message;
 }

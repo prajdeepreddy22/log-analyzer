@@ -8,7 +8,6 @@ import com.loganalyzer.dto.response.RootCauseResult;
 import com.loganalyzer.dto.response.UsedLogDto;
 import com.loganalyzer.entity.Analysis;
 import com.loganalyzer.entity.Log;
-import com.loganalyzer.entity.Upload;
 import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.repository.AnalysisRepository;
 import com.loganalyzer.repository.LogRepository;
@@ -81,14 +80,7 @@ public class ChatService {
         // =====================================================
         // SECURITY CHECK
         // =====================================================
-        Upload upload = uploadRepository
-                .findByUploadIdAndUserId(
-                        request.getUploadId(),
-                        userId
-                )
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Upload not found")
-                );
+        validateUploadAccess(request.getUploadId(), userId);
 
         // =====================================================
         // CACHE KEY
@@ -311,51 +303,32 @@ public class ChatService {
         // =====================================================
         // AI CALL
         // =====================================================
-        String answer;
+        String answer = openAIClient.askQuestion(prompt);
 
-        try {
+        // =====================================================
+        // SMART RETRY
+        // =====================================================
+        boolean weak =
+                responseQualityService.isWeakResponse(answer);
 
-            answer = openAIClient.askQuestion(prompt);
+        if (weak) {
 
-            // =====================================================
-            // SMART RETRY
-            // =====================================================
-            boolean weak =
-                    responseQualityService.isWeakResponse(answer);
-
-            if (weak) {
-
-                log.warn(
-                        "Weak AI response detected. Retrying..."
-                );
-
-                String retryPrompt = prompt +
-                        "\n\nIMPORTANT:\n" +
-                        "Provide a more detailed technical analysis " +
-                        "with root cause reasoning and fix suggestions.";
-
-                answer = openAIClient.askQuestion(retryPrompt);
-            }
-
-            log.info(
-                    "AI response generated for uploadId={}",
-                    request.getUploadId()
+            log.warn(
+                    "Weak AI response detected. Retrying..."
             );
 
-        } catch (Exception e) {
+            String retryPrompt = prompt +
+                    "\n\nIMPORTANT:\n" +
+                    "Provide a more detailed technical analysis " +
+                    "with root cause reasoning and fix suggestions.";
 
-            log.error(
-                    "AI request failed for uploadId={}",
-                    request.getUploadId(),
-                    e
-            );
-
-            answer = """
-                    Unable to process your question at the moment.
-
-                    Please try again later.
-                    """;
+            answer = openAIClient.askQuestion(retryPrompt);
         }
+
+        log.info(
+                "AI response generated for uploadId={}",
+                request.getUploadId()
+        );
 
         answer = chatResponseFormatterService.format(answer);
 
@@ -433,6 +406,14 @@ public class ChatService {
                 .quality(quality)
                 .insights(insights)
                 .build();
+    }
+
+    public void validateUploadAccess(String uploadId, Long userId) {
+        uploadRepository
+                .findByUploadIdAndUserId(uploadId, userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Upload not found")
+                );
     }
 
     // =====================================================

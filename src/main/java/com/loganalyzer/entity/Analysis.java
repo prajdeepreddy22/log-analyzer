@@ -5,13 +5,14 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "analysis")
 @Getter
 @Setter
-@ToString(exclude = {"upload", "user"}) // ✅ Prevent lazy loading issues
+@ToString(exclude = {"upload", "user", "incident"})
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -28,6 +29,10 @@ public class Analysis {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "incident_id")
+    private Incident incident;
 
     @Column(name = "hash_key", nullable = false, length = 64)
     private String hashKey;
@@ -47,8 +52,17 @@ public class Analysis {
     @Column(name = "code_fix", columnDefinition = "TEXT")
     private String codeFix;
 
-    @Column(name = "severity_score", columnDefinition = "TINYINT")
-    private Integer severityScore;
+    @Column(name = "severity_score")
+    private Byte severityScore;
+
+    @Column(
+            name = "confidence_score",
+            nullable = false,
+            precision = 4,
+            scale = 3
+    )
+    @Builder.Default
+    private BigDecimal confidenceScore = new BigDecimal("0.000");
 
     @Column(name = "retry_count", nullable = false)
     @Builder.Default

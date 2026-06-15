@@ -20,7 +20,7 @@ class RegisterRequestTest {
                 .displayName("")
                 .username("raj2122")
                 .email("raj@example.com")
-                .password("secret123")
+                .password("Secret@123")
                 .build();
 
         Set<ConstraintViolation<RegisterRequest>> violations =
@@ -37,9 +37,82 @@ class RegisterRequestTest {
                 .displayName("Rajdeep")
                 .username("raj2122")
                 .email("raj@example.com")
-                .password("secret123")
+                .password("Secret@123")
                 .build();
 
         assertThat(validator.validate(request)).isEmpty();
+    }
+
+    @Test
+    void acceptsInEmailAddress() {
+        RegisterRequest request = validRequest();
+        request.setEmail("raj@example.in");
+
+        assertThat(validator.validate(request)).isEmpty();
+    }
+
+    @Test
+    void rejectsUnsupportedEmailDomain() {
+        RegisterRequest request = validRequest();
+        request.setEmail("raj@example.org");
+
+        assertThat(validator.validate(request))
+                .anyMatch(violation ->
+                        violation.getMessage().equals(
+                                "Email must be a valid .com or .in address"
+                        ));
+    }
+
+    @Test
+    void rejectsPasswordWithoutUppercaseLetter() {
+        RegisterRequest request = validRequest();
+        request.setPassword("secret@123");
+
+        assertPasswordComplexityViolation(request);
+    }
+
+    @Test
+    void rejectsPasswordWithoutLowercaseLetter() {
+        RegisterRequest request = validRequest();
+        request.setPassword("SECRET@123");
+
+        assertPasswordComplexityViolation(request);
+    }
+
+    @Test
+    void rejectsPasswordWithoutSpecialCharacter() {
+        RegisterRequest request = validRequest();
+        request.setPassword("Secret123");
+
+        assertPasswordComplexityViolation(request);
+    }
+
+    @Test
+    void rejectsPasswordShorterThanEightCharacters() {
+        RegisterRequest request = validRequest();
+        request.setPassword("Sec@123");
+
+        assertThat(validator.validate(request))
+                .anyMatch(violation ->
+                        violation.getMessage().equals(
+                                "Password must be between 8 and 255 characters"
+                        ));
+    }
+
+    private RegisterRequest validRequest() {
+        return RegisterRequest.builder()
+                .displayName("Rajdeep")
+                .username("raj2122")
+                .email("raj@example.com")
+                .password("Secret@123")
+                .build();
+    }
+
+    private void assertPasswordComplexityViolation(RegisterRequest request) {
+        assertThat(validator.validate(request))
+                .anyMatch(violation ->
+                        violation.getMessage().equals(
+                                "Password must contain at least one uppercase letter, one lowercase letter, and one special character"
+                        ));
     }
 }

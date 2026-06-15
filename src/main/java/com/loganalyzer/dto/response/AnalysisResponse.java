@@ -14,9 +14,11 @@ public class AnalysisResponse {
     private String fixSuggestion;
     private String codeFix;
     private Integer severityScore;
+    private Double confidenceScore;
     private String status;
     private String analysisStatus;
     private String message;
+    private String errorMessage;
     private boolean completed;
     private boolean hasResult;
 }

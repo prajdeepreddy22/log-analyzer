@@ -5,7 +5,7 @@ import com.loganalyzer.dto.response.ChatResponse;
 import com.loganalyzer.dto.response.StreamChunkResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 @Service
 @RequiredArgsConstructor
@@ -23,11 +24,18 @@ public class StreamingChatService {
 
     private final ChatService chatService;
 
+    @Qualifier("aiExecutor")
+    private final Executor aiExecutor;
+
     private final Set<String> activeStreams =
             ConcurrentHashMap.newKeySet();
 
     private final Map<String, Long> completedStreams =
             new ConcurrentHashMap<>();
+
+    public void validateUploadAccess(String uploadId, Long userId) {
+        chatService.validateUploadAccess(uploadId, userId);
+    }
 
     public boolean tryStartStream(
             String message,
@@ -57,15 +65,40 @@ public class StreamingChatService {
             Long userId
     ) {
 
-        // 0L = no timeout
         SseEmitter emitter = new SseEmitter(300000L);
+        String key = streamKey(message, uploadId, userId);
 
-        streamAsync(
-                message,
-                uploadId,
-                userId,
-                emitter
-        );
+        emitter.onTimeout(() -> {
+            log.warn(
+                    "AI stream timed out userId={} uploadId={}",
+                    userId,
+                    uploadId
+            );
+            completeWithErrorEvent(
+                    emitter,
+                    key,
+                    "AI streaming timed out"
+            );
+        });
+
+        emitter.onError(error -> {
+            log.debug(
+                    "AI stream connection error userId={} uploadId={}: {}",
+                    userId,
+                    uploadId,
+                    error.getMessage()
+            );
+        });
+
+        emitter.onCompletion(() -> activeStreams.remove(key));
+
+        try {
+            aiExecutor.execute(() ->
+                    streamAsync(message, uploadId, userId, emitter));
+        } catch (RuntimeException e) {
+            activeStreams.remove(key);
+            throw e;
+        }
 
         return emitter;
     }
@@ -73,7 +106,6 @@ public class StreamingChatService {
     // =====================================================
     // ASYNC STREAMING
     // =====================================================
-    @Async("aiExecutor")
     public void streamAsync(
             String message,
             String uploadId,
@@ -85,10 +117,10 @@ public class StreamingChatService {
             String streamKey = streamKey(message, uploadId, userId);
 
             log.info(
-                    "Starting AI stream userId={} uploadId={} question={}",
+                    "Starting AI stream userId={} uploadId={} messageLength={}",
                     userId,
                     uploadId,
-                    message
+                    message == null ? 0 : message.length()
             );
 
             // =====================================================
@@ -165,36 +197,51 @@ public class StreamingChatService {
         } catch (Exception e) {
 
             log.error(
-                    "Streaming failed userId={} uploadId={}",
+                    "Streaming failed userId={} uploadId={} type={}",
                     userId,
                     uploadId,
-                    e
+                    e.getClass().getSimpleName()
             );
 
-            try {
-
-                emitter.send(
-                        SseEmitter.event()
-                                .name("error")
-                                .data(
-                                        StreamChunkResponse.builder()
-                                                .content(
-                                                        "AI streaming failed"
-                                                )
-                                                .completed(true)
-                                                .build()
-                                )
-                );
-
-            } catch (Exception ignored) {
-            }
-
-            emitter.completeWithError(e);
+            completeWithErrorEvent(
+                    emitter,
+                    streamKey(message, uploadId, userId),
+                    "AI streaming failed"
+            );
         } finally {
 
             activeStreams.remove(
                     streamKey(message, uploadId, userId)
             );
+        }
+    }
+
+    void completeWithErrorEvent(
+            SseEmitter emitter,
+            String streamKey,
+            String safeMessage
+    ) {
+
+        try {
+            emitter.send(
+                    SseEmitter.event()
+                            .name("error")
+                            .data(
+                                    StreamChunkResponse.builder()
+                                            .content(safeMessage)
+                                            .completed(true)
+                                            .build()
+                            )
+            );
+        } catch (Exception sendException) {
+            log.debug(
+                    "Unable to send terminal SSE error event: {}",
+                    sendException.getMessage()
+            );
+        } finally {
+            markCompleted(streamKey);
+            activeStreams.remove(streamKey);
+            emitter.complete();
         }
     }
 

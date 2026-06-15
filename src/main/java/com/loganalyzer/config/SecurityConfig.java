@@ -1,11 +1,14 @@
 package com.loganalyzer.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.loganalyzer.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -21,6 +24,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -33,27 +41,7 @@ public class SecurityConfig {
 
     private final PasswordEncoder passwordEncoder;
 
-    // =========================================================
-    // PUBLIC ENDPOINTS
-    // =========================================================
-    private static final String[] PUBLIC_URLS = {
-
-            // AUTH
-            "/auth/register",
-            "/auth/login",
-
-            // SWAGGER
-            "/v3/api-docs/**",
-            "/swagger-ui/**",
-            "/swagger-ui.html",
-
-            // ACTUATOR
-            "/actuator/health",
-            "/actuator/info",
-
-            // ERROR
-            "/error"
-    };
+    private final ObjectMapper objectMapper;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http)
@@ -83,14 +71,15 @@ public class SecurityConfig {
                                 DispatcherType.ERROR
                         ).permitAll()
 
-                        // PUBLIC URLS
-                        .requestMatchers(PUBLIC_URLS).permitAll()
-
-                        // SWAGGER WITH CONTEXT PATH
                         .requestMatchers(
-                                "/api/v3/api-docs/**",
-                                "/api/swagger-ui/**",
-                                "/api/swagger-ui.html"
+                                HttpMethod.POST,
+                                "/auth/register",
+                                "/auth/login"
+                        ).permitAll()
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/actuator/health"
                         ).permitAll()
 
                         // EVERYTHING ELSE SECURED
@@ -109,9 +98,12 @@ public class SecurityConfig {
 
                                     if (!response.isCommitted()) {
 
-                                        response.sendError(
+                                        writeSecurityError(
+                                                request,
+                                                response,
                                                 HttpServletResponse.SC_UNAUTHORIZED,
-                                                "Unauthorized"
+                                                "Unauthorized",
+                                                "Authentication is required"
                                         );
                                     }
                                 }
@@ -123,9 +115,12 @@ public class SecurityConfig {
 
                                     if (!response.isCommitted()) {
 
-                                        response.sendError(
+                                        writeSecurityError(
+                                                request,
+                                                response,
                                                 HttpServletResponse.SC_FORBIDDEN,
-                                                "Access Denied"
+                                                "Forbidden",
+                                                "Access is denied"
                                         );
                                     }
                                 }
@@ -182,5 +177,27 @@ public class SecurityConfig {
     ) throws Exception {
 
         return config.getAuthenticationManager();
+    }
+
+    private void writeSecurityError(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            int status,
+            String error,
+            String details
+    ) throws IOException {
+
+        response.setStatus(status);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", status);
+        body.put("error", error);
+        body.put("details", details);
+        body.put("path", request.getRequestURI());
+
+        objectMapper.writeValue(response.getOutputStream(), body);
     }
 }

@@ -34,20 +34,29 @@ public class WebConfig {
         // ALLOW HEADERS
         // =========================================
         config.setAllowedHeaders(
-                List.of("*")
+                List.of(
+                        "Authorization",
+                        "Content-Type"
+                )
         );
 
         // =========================================
         // ALLOW METHODS
         // =========================================
         config.setAllowedMethods(
-                List.of("*")
+                List.of(
+                        "GET",
+                        "POST",
+                        "PATCH",
+                        "DELETE",
+                        "OPTIONS"
+                )
         );
 
         // =========================================
         // ALLOW COOKIES/AUTH
         // =========================================
-        config.setAllowCredentials(true);
+        config.setAllowCredentials(false);
 
         // =========================================
         // EXPOSE HEADERS
