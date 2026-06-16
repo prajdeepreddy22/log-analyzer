@@ -21,4 +21,7 @@ public class UploadResponse {
     private LocalDateTime uploadTime;
     private String message;
     private String errorMessage;
+    private int totalLogs;
+    private int errorCount;
+    private int warnCount;
 }

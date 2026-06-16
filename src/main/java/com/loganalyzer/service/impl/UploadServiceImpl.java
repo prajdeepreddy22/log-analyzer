@@ -99,6 +99,9 @@ public class UploadServiceImpl implements UploadService {
                     .status(UploadStatus.UPLOADED.name())
                     .uploadTime(upload.getUploadTime())
                     .message("File uploaded successfully. Processing started.")
+                    .totalLogs(safeCount(upload.getTotalLogs()))
+                    .errorCount(safeCount(upload.getErrorCount()))
+                    .warnCount(safeCount(upload.getWarnCount()))
                     .build();
 
         } catch (IOException | StorageException e) {
@@ -154,9 +157,9 @@ public class UploadServiceImpl implements UploadService {
         return UploadStatusResponse.builder()
                 .uploadId(upload.getUploadId())
                 .status(upload.getStatus().name())
-                .totalLogs(upload.getTotalLogs())
-                .errorCount(upload.getErrorCount())
-                .warnCount(upload.getWarnCount())
+                .totalLogs(safeCount(upload.getTotalLogs()))
+                .errorCount(safeCount(upload.getErrorCount()))
+                .warnCount(safeCount(upload.getWarnCount()))
                 .errorMessage(upload.getProcessingError())
                 .build();
     }
@@ -223,7 +226,14 @@ public class UploadServiceImpl implements UploadService {
                 .uploadTime(upload.getUploadTime())
                 .message("Fetched successfully")
                 .errorMessage(upload.getProcessingError())
+                .totalLogs(safeCount(upload.getTotalLogs()))
+                .errorCount(safeCount(upload.getErrorCount()))
+                .warnCount(safeCount(upload.getWarnCount()))
                 .build();
+    }
+
+    private int safeCount(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private void cleanupStoredFile(String filePath, String uploadId) {
