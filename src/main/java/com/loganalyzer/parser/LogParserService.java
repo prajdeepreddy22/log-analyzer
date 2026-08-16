@@ -2,6 +2,7 @@ package com.loganalyzer.parser;
 
 import com.loganalyzer.entity.Log.LogLevel;
 import com.loganalyzer.service.HashKeyService;
+import com.loganalyzer.service.SensitiveDataRedactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ import java.util.regex.Pattern;
 public class LogParserService {
 
     private final HashKeyService hashKeyService;
+    private final SensitiveDataRedactionService sensitiveDataRedactionService;
 
     // =====================================================
     // FORMAT 1
@@ -127,17 +129,21 @@ public class LogParserService {
             long sequence
     ) {
 
-        String firstLine = lines.get(0);
+        List<String> redactedLines = lines.stream()
+                .map(sensitiveDataRedactionService::redact)
+                .toList();
+
+        String firstLine = redactedLines.get(0);
 
         List<String> stackLines =
-                lines.size() > 1
-                        ? lines.subList(1, lines.size())
+                redactedLines.size() > 1
+                        ? redactedLines.subList(1, redactedLines.size())
                         : Collections.emptyList();
 
         ParsedLogEntry entry =
                 tryParseFormats(firstLine, sequence);
 
-        entry.setRawLog(String.join("\n", lines));
+        entry.setRawLog(String.join("\n", redactedLines));
 
         entry.setHasStackTrace(!stackLines.isEmpty());
 

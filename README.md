@@ -53,6 +53,9 @@ This project gave me hands-on experience with Spring Security, asynchronous proc
 
 - Stateless JWT authentication
 - Per-user ownership checks for uploads, logs, analyses, incidents, and chat
+- Sensitive log values are redacted before parsed logs are saved or sent to AI
+- Raw uploaded files are removed after ingestion so the original file is not retained
+- Redaction is best-effort and should not replace pre-sanitizing confidential production logs
 - Minute and daily AI usage limits
 - Environment-based CORS configuration
 - Consistent JSON error responses
@@ -161,6 +164,10 @@ Complete request and response documentation is available in [Swagger UI](http://
 - Docker
 - Maven 3.9+ or the included Maven Wrapper
 - OpenAI API key
+
+### Demo log file
+
+For a quick product demo, upload [`sample-logs/logai-demo-incident.txt`](sample-logs/logai-demo-incident.txt). It contains a small login/payment incident with `ERROR`, `WARN`, stack-trace, and unstructured lines, so the parser, log viewer, AI analysis, and chat flow all have useful data to work with.
 
 ### Docker Compose
 
