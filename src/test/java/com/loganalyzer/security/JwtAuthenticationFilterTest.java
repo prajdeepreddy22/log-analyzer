@@ -52,6 +52,42 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void authenticatesRealtimeEventStreamWithTokenQueryParam() throws Exception {
+
+        SecurityContextHolder.clearContext();
+
+        JwtService jwtService = mock(JwtService.class);
+        UserDetailsServiceImpl userDetailsService = mock(UserDetailsServiceImpl.class);
+        JwtAuthenticationFilter filter =
+                new JwtAuthenticationFilter(jwtService, userDetailsService);
+
+        UserDetails userDetails = User.withUsername("raj2122")
+                .password("password")
+                .roles("USER")
+                .build();
+
+        when(jwtService.extractUsername("token-123")).thenReturn("raj2122");
+        when(jwtService.extractUserId("token-123")).thenReturn(1L);
+        when(userDetailsService.loadUserByUsername("raj2122")).thenReturn(userDetails);
+        when(jwtService.isTokenValid("token-123", userDetails)).thenReturn(true);
+
+        MockHttpServletRequest request =
+                new MockHttpServletRequest("GET", "/api/events/stream");
+        request.setParameter("token", "token-123");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, filterChain);
+
+        assertThat(request.getAttribute("userId")).isEqualTo(1L);
+        assertThat(request.getAttribute("username")).isEqualTo("raj2122");
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(filterChain).doFilter(request, response);
+
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
     void invalidTokenDoesNotAuthenticateOrExposeStackTraceToResponse()
             throws Exception {
 

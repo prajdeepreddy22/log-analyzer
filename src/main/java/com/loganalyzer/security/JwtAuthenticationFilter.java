@@ -42,7 +42,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             jwt = authHeader.substring(7);
-        } else if (isStreamingChatRequest(request)) {
+        } else if (isQueryTokenSseRequest(request)) {
             jwt = request.getParameter("token");
         }
 
@@ -99,13 +99,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
-    private boolean isStreamingChatRequest(HttpServletRequest request) {
+    private boolean isQueryTokenSseRequest(HttpServletRequest request) {
 
         String uri = request.getRequestURI();
 
         return "GET".equalsIgnoreCase(request.getMethod())
                 && uri != null
-                && uri.endsWith("/chat/stream");
+                && (uri.endsWith("/chat/stream")
+                || uri.endsWith("/events/stream"));
     }
 
     private boolean isIngestionRequest(HttpServletRequest request) {

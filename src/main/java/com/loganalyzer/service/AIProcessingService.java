@@ -3,12 +3,15 @@ package com.loganalyzer.service;
 import com.loganalyzer.client.OpenAIClient;
 import com.loganalyzer.entity.Analysis;
 import com.loganalyzer.entity.Log;
+import com.loganalyzer.event.AnalysisCompletedEvent;
+import com.loganalyzer.event.AnalysisStartedEvent;
 import com.loganalyzer.exception.AIProviderException;
 import com.loganalyzer.exception.ResourceNotFoundException;
 import com.loganalyzer.repository.AnalysisRepository;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -34,6 +37,7 @@ public class AIProcessingService {
     private final RootCauseDetectorService rootCauseDetectorService;
     private final ConfidenceScoreService confidenceScoreService;
     private final MetricsService metricsService;
+    private final ApplicationEventPublisher eventPublisher;
 
     // =========================================================
     // MAIN AI PROCESSING
@@ -86,6 +90,14 @@ public class AIProcessingService {
                 );
 
                 analysisPersistenceService.save(analysis);
+
+                eventPublisher.publishEvent(
+                        new AnalysisStartedEvent(
+                                userId,
+                                analysis.getId(),
+                                uploadId
+                        )
+                );
 
                 // =====================================================
                 // BUILD PROMPT
@@ -190,6 +202,18 @@ public class AIProcessingService {
                 analysis.setErrorMessage(null);
 
                 analysisPersistenceService.save(analysis);
+
+                eventPublisher.publishEvent(
+                        new AnalysisCompletedEvent(
+                                userId,
+                                analysis.getId(),
+                                uploadId,
+                                analysis.getAnalysisStatus().name(),
+                                analysis.getConfidenceScore() == null
+                                        ? "0.000"
+                                        : analysis.getConfidenceScore().toPlainString()
+                        )
+                );
 
                 // =====================================================
                 // SUCCESS METRIC
