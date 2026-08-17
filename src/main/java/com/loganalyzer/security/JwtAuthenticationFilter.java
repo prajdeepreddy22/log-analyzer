@@ -33,6 +33,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader("Authorization");
 
+        if (isIngestionRequest(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String jwt = null;
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
@@ -101,5 +106,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return "GET".equalsIgnoreCase(request.getMethod())
                 && uri != null
                 && uri.endsWith("/chat/stream");
+    }
+
+    private boolean isIngestionRequest(HttpServletRequest request) {
+
+        String uri = request.getRequestURI();
+
+        return uri != null
+                && uri.startsWith(request.getContextPath() + "/ingest/");
     }
 }

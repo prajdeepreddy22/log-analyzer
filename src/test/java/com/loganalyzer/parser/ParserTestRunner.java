@@ -1,6 +1,7 @@
 package com.loganalyzer.parser;
 
 import com.loganalyzer.service.HashKeyService;
+import com.loganalyzer.service.SensitiveDataRedactionService;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +26,10 @@ public class ParserTestRunner {
         // ✅ FIX: correct package
         HashKeyService hashKeyService = new HashKeyService();
 
-        LogParserService parser = new LogParserService(hashKeyService);
+        LogParserService parser = new LogParserService(
+                hashKeyService,
+                new SensitiveDataRedactionService()
+        );
 
         List<ParsedLogEntry> result = parser.parse(
                 new ByteArrayInputStream(logs.getBytes(StandardCharsets.UTF_8))

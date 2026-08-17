@@ -10,6 +10,7 @@ import com.loganalyzer.parser.ParsedLogEntry;
 import com.loganalyzer.repository.LogRepository;
 import com.loganalyzer.repository.UploadRepository;
 import com.loganalyzer.service.LogIngestionService;
+import com.loganalyzer.service.SensitiveDataRedactionService;
 import com.loganalyzer.service.UploadFailureService;
 import com.loganalyzer.storage.StorageException;
 import com.loganalyzer.storage.StorageService;
@@ -36,6 +37,7 @@ public class LogIngestionServiceImpl implements LogIngestionService {
     private final StorageService storageService;
     private final LogParserService logParserService;
     private final UploadFailureService uploadFailureService;
+    private final SensitiveDataRedactionService sensitiveDataRedactionService;
 
     @Override
     @Async
@@ -43,10 +45,14 @@ public class LogIngestionServiceImpl implements LogIngestionService {
 
         log.info("Starting log ingestion for uploadId={}", uploadId);
 
+        String storedFilePath = null;
+
         try {
             Upload upload = uploadRepository.findById(uploadId)
                     .orElseThrow(() ->
                             new ResourceNotFoundException("Upload not found"));
+
+            storedFilePath = upload.getFilePath();
 
             upload.setStatus(UploadStatus.PROCESSING);
             upload.setProcessingError(null);
@@ -103,6 +109,8 @@ public class LogIngestionServiceImpl implements LogIngestionService {
                     exception.getClass().getSimpleName()
             );
             persistFailure(uploadId, exception);
+        } finally {
+            cleanupStoredFile(storedFilePath, uploadId);
         }
     }
 
@@ -148,12 +156,31 @@ public class LogIngestionServiceImpl implements LogIngestionService {
 
         if (message == null
                 || message.length() <= MAX_PERSISTED_MESSAGE_CHARACTERS) {
-            return message;
+            return sensitiveDataRedactionService.redact(message);
         }
 
         int retainedLength =
                 MAX_PERSISTED_MESSAGE_CHARACTERS - TRUNCATION_MARKER.length();
 
-        return message.substring(0, retainedLength) + TRUNCATION_MARKER;
+        return sensitiveDataRedactionService.redact(
+                message.substring(0, retainedLength) + TRUNCATION_MARKER
+        );
+    }
+
+    private void cleanupStoredFile(String filePath, String uploadId) {
+
+        if (filePath == null || filePath.isBlank()) {
+            return;
+        }
+
+        try {
+            storageService.delete(filePath);
+        } catch (Exception cleanupException) {
+            log.warn(
+                    "Stored upload file cleanup failed after ingestion uploadId={} type={}",
+                    uploadId,
+                    cleanupException.getClass().getSimpleName()
+            );
+        }
     }
 }

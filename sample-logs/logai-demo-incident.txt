@@ -1,0 +1,13 @@
+2026-06-14 10:15:22 INFO [AuthService] Login request received for username=demo.user
+2026-06-14 10:15:24 WARN [AuthService] User profile lookup returned empty optional for username=demo.user
+2026-06-14 10:15:32 ERROR [AuthService] NullPointerException occurred while processing login
+	at com.logai.auth.AuthService.buildLoginResponse(AuthService.java:87)
+	at com.logai.auth.AuthController.login(AuthController.java:42)
+Caused by: java.lang.NullPointerException: Cannot invoke "User.getDisplayName()" because "user" is null
+	at com.logai.auth.AuthService.buildLoginResponse(AuthService.java:83)
+2026-06-14 10:15:35 WARN [PaymentService] Payment retry initiated for orderId=ORD123
+2026-06-14 10:15:42 ERROR [PaymentService] Payment gateway timeout while calling provider=stripe
+2026-06-14 10:16:03 INFO [NotificationService] Login failure notification skipped because user email is unavailable
+Unstructured stacktrace fragment from legacy service
+	at legacy.SessionManager.resolve(SessionManager.java:61)
+Caused by: java.sql.SQLTransientConnectionException: Connection pool exhausted

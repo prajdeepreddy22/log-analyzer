@@ -7,6 +7,7 @@ import com.loganalyzer.parser.LogParserService;
 import com.loganalyzer.repository.LogRepository;
 import com.loganalyzer.repository.UploadRepository;
 import com.loganalyzer.service.HashKeyService;
+import com.loganalyzer.service.SensitiveDataRedactionService;
 import com.loganalyzer.service.UploadFailureService;
 import com.loganalyzer.storage.StorageService;
 import org.junit.jupiter.api.Test;
@@ -35,14 +36,18 @@ class LogIngestionServiceImplTest {
         UploadFailureService uploadFailureService =
                 mock(UploadFailureService.class);
 
-        LogParserService parser = new LogParserService(new HashKeyService());
+        LogParserService parser = new LogParserService(
+                new HashKeyService(),
+                new SensitiveDataRedactionService()
+        );
 
         LogIngestionServiceImpl service = new LogIngestionServiceImpl(
                 uploadRepository,
                 logRepository,
                 storageService,
                 parser,
-                uploadFailureService
+                uploadFailureService,
+                new SensitiveDataRedactionService()
         );
 
         Upload upload = Upload.builder()
@@ -70,6 +75,7 @@ class LogIngestionServiceImplTest {
         ArgumentCaptor<List<Log>> logsCaptor = ArgumentCaptor.forClass(List.class);
         verify(logRepository).saveAll(logsCaptor.capture());
         verify(uploadRepository, times(2)).save(upload);
+        verify(storageService).delete("stored/app.log");
 
         List<Log> savedLogs = logsCaptor.getValue();
         assertThat(savedLogs).hasSize(2);
@@ -91,6 +97,67 @@ class LogIngestionServiceImplTest {
     }
 
     @Test
+    void redactsSensitiveValuesBeforeSavingLogs() throws Exception {
+
+        UploadRepository uploadRepository = mock(UploadRepository.class);
+        LogRepository logRepository = mock(LogRepository.class);
+        StorageService storageService = mock(StorageService.class);
+        UploadFailureService uploadFailureService =
+                mock(UploadFailureService.class);
+
+        LogIngestionServiceImpl service = new LogIngestionServiceImpl(
+                uploadRepository,
+                logRepository,
+                storageService,
+                new LogParserService(
+                        new HashKeyService(),
+                        new SensitiveDataRedactionService()
+                ),
+                uploadFailureService,
+                new SensitiveDataRedactionService()
+        );
+
+        Upload upload = Upload.builder()
+                .uploadId("upload-sensitive")
+                .fileName("sensitive.log")
+                .filePath("stored/sensitive.log")
+                .uploadTime(LocalDateTime.now())
+                .status(UploadStatus.UPLOADED)
+                .build();
+
+        String content = """
+                2024-01-15 10:23:45 ERROR [AuthService] Login failed password=plainTextPassword Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.secret.signature email=demo.user@example.com api_key=sk-proj-1234567890abcdefghijklmnopqrstuvwxyz
+                """;
+
+        when(uploadRepository.findById("upload-sensitive"))
+                .thenReturn(Optional.of(upload));
+        when(storageService.read("stored/sensitive.log"))
+                .thenReturn(new ByteArrayInputStream(
+                        content.getBytes(StandardCharsets.UTF_8)
+                ));
+
+        service.process("upload-sensitive");
+
+        ArgumentCaptor<List<Log>> logsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(logRepository).saveAll(logsCaptor.capture());
+        verify(storageService).delete("stored/sensitive.log");
+
+        String savedMessage =
+                logsCaptor.getValue().get(0).getMessage();
+
+        assertThat(savedMessage)
+                .contains("password=[REDACTED]")
+                .contains("Authorization: Bearer [REDACTED]")
+                .contains("email=[REDACTED_EMAIL]")
+                .contains("api_key=[REDACTED]")
+                .doesNotContain("plainTextPassword")
+                .doesNotContain("demo.user@example.com")
+                .doesNotContain("eyJhbGciOiJIUzI1NiJ9")
+                .doesNotContain("sk-proj-1234567890");
+    }
+
+    @Test
     void persistsSanitizedFailureWhenStoredFileCannotBeRead()
             throws Exception {
 
@@ -104,8 +171,12 @@ class LogIngestionServiceImplTest {
                 uploadRepository,
                 logRepository,
                 storageService,
-                new LogParserService(new HashKeyService()),
-                uploadFailureService
+                new LogParserService(
+                        new HashKeyService(),
+                        new SensitiveDataRedactionService()
+                ),
+                uploadFailureService,
+                new SensitiveDataRedactionService()
         );
 
         Upload upload = Upload.builder()
@@ -127,6 +198,7 @@ class LogIngestionServiceImplTest {
                 "upload-2",
                 "Stored file could not be read"
         );
+        verify(storageService).delete("secret/path/app.log");
     }
 
     @Test
@@ -143,8 +215,12 @@ class LogIngestionServiceImplTest {
                 uploadRepository,
                 logRepository,
                 storageService,
-                new LogParserService(new HashKeyService()),
-                uploadFailureService
+                new LogParserService(
+                        new HashKeyService(),
+                        new SensitiveDataRedactionService()
+                ),
+                uploadFailureService,
+                new SensitiveDataRedactionService()
         );
 
         Upload upload = Upload.builder()
