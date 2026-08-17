@@ -2,6 +2,10 @@ spring:
   application:
     name: log-analyzer
 
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
   # ==================== DATABASE ====================
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/log_analyzer?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
@@ -16,6 +20,12 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       pool-name: LogAnalyzerHikariPool
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT_MS:2000}
 
   # ==================== JPA ====================
   jpa:
@@ -140,3 +150,11 @@ cors:
 storage:
   type: local
   base-path: ${STORAGE_BASE_PATH:uploads}
+
+# ==================== AEIP PHASE 2 ====================
+aeip:
+  ingest:
+    dedup-ttl-minutes: ${AEIP_INGEST_DEDUP_TTL_MINUTES:5}
+
+  cache:
+    analysis-ttl-hours: ${AEIP_CACHE_ANALYSIS_TTL_HOURS:24}

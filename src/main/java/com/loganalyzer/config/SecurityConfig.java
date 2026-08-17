@@ -1,6 +1,7 @@
 package com.loganalyzer.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.loganalyzer.security.ApiTokenAuthenticationFilter;
 import com.loganalyzer.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,6 +37,8 @@ import java.util.Map;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    private final ApiTokenAuthenticationFilter apiTokenAuthenticationFilter;
 
     private final UserDetailsService userDetailsService;
 
@@ -151,6 +154,11 @@ public class SecurityConfig {
                 // =====================================================
                 // JWT FILTER
                 // =====================================================
+                .addFilterBefore(
+                        apiTokenAuthenticationFilter,
+                        UsernamePasswordAuthenticationFilter.class
+                )
+
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class

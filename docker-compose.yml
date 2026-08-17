@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: log-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   mysql:
     image: mysql:8.4
     container_name: log-mysql
@@ -30,6 +42,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8080:8080"
     environment:
@@ -42,6 +56,10 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
       STORAGE_BASE_PATH: /app/uploads
       FLYWAY_BASELINE_ON_MIGRATE: "false"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AEIP_INGEST_DEDUP_TTL_MINUTES: ${AEIP_INGEST_DEDUP_TTL_MINUTES:-5}
+      AEIP_CACHE_ANALYSIS_TTL_HOURS: ${AEIP_CACHE_ANALYSIS_TTL_HOURS:-24}
     volumes:
       - ./uploads:/app/uploads
     healthcheck:
@@ -56,5 +74,7 @@ services:
       start_period: 45s
 
 volumes:
+  redis_data:
+    name: log-analyzer_redis_data
   mysql_data:
     name: log-analyzer_mysql_data
