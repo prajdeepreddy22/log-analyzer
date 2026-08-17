@@ -2,12 +2,17 @@ package com.loganalyzer.service;
 
 import com.loganalyzer.entity.Analysis;
 import com.loganalyzer.entity.Incident;
+import com.loganalyzer.entity.Incident.IncidentStatus;
+import com.loganalyzer.entity.IncidentStatusHistory;
 import com.loganalyzer.entity.Upload;
 import com.loganalyzer.entity.User;
+import com.loganalyzer.event.IncidentStatusChangedEvent;
 import com.loganalyzer.repository.AnalysisRepository;
 import com.loganalyzer.repository.IncidentRepository;
+import com.loganalyzer.repository.IncidentStatusHistoryRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,10 +35,18 @@ class IncidentGroupingServiceTest {
     private final AnalysisRepository analysisRepository =
             mock(AnalysisRepository.class);
 
+    private final IncidentStatusHistoryRepository historyRepository =
+            mock(IncidentStatusHistoryRepository.class);
+
+    private final ApplicationEventPublisher eventPublisher =
+            mock(ApplicationEventPublisher.class);
+
     private final IncidentGroupingService service =
             new IncidentGroupingService(
                     incidentRepository,
-                    analysisRepository
+                    analysisRepository,
+                    historyRepository,
+                    eventPublisher
             );
 
     @Test
@@ -71,6 +84,9 @@ class IncidentGroupingServiceTest {
         assertThat(analysis.getIncident()).isSameAs(incident);
         assertThat(incident.getRootCause())
                 .isEqualTo("NULL_REFERENCE_ERROR");
+        assertThat(incident.getTitle())
+                .isEqualTo("Null reference error incident");
+        assertThat(incident.getStatus()).isEqualTo(IncidentStatus.OPEN);
         assertThat(incident.getOccurrenceCount()).isEqualTo(1);
         assertThat(incident.getSeverityScore()).isEqualTo((byte) 4);
         assertThat(incident.getConfidenceScore())
@@ -87,6 +103,8 @@ class IncidentGroupingServiceTest {
                 .incidentId("incident-1")
                 .upload(upload())
                 .user(user())
+                .title("Null reference error incident")
+                .status(IncidentStatus.OPEN)
                 .rootCause("NULL_REFERENCE_ERROR")
                 .severityScore((byte) 3)
                 .confidenceScore(new BigDecimal("0.600"))
@@ -137,6 +155,8 @@ class IncidentGroupingServiceTest {
                 .incidentId("incident-1")
                 .upload(upload())
                 .user(user())
+                .title("Null reference error incident")
+                .status(IncidentStatus.OPEN)
                 .rootCause("NULL_REFERENCE_ERROR")
                 .severityScore((byte) 4)
                 .confidenceScore(new BigDecimal("0.900"))
@@ -169,6 +189,48 @@ class IncidentGroupingServiceTest {
     }
 
     @Test
+    void reopensClosedIncidentWhenNewMatchingAnalysisArrives() {
+
+        Incident incident = Incident.builder()
+                .incidentId("incident-1")
+                .upload(upload())
+                .user(user())
+                .title("Null reference error incident")
+                .status(IncidentStatus.CLOSED)
+                .rootCause("NULL_REFERENCE_ERROR")
+                .severityScore((byte) 4)
+                .confidenceScore(new BigDecimal("0.900"))
+                .occurrenceCount(1)
+                .firstSeen(LocalDateTime.now())
+                .lastSeen(LocalDateTime.now())
+                .build();
+
+        Analysis current = completedAnalysis(
+                1L,
+                4,
+                0.90,
+                LocalDateTime.now()
+        );
+
+        when(incidentRepository
+                .findByUploadUploadIdAndUserIdAndRootCause(
+                        "upload-1",
+                        1L,
+                        "NULL_REFERENCE_ERROR"
+                ))
+                .thenReturn(Optional.of(incident));
+        when(analysisRepository.findByIncidentIncidentId("incident-1"))
+                .thenReturn(List.of());
+
+        service.group(current);
+
+        assertThat(incident.getStatus()).isEqualTo(IncidentStatus.OPEN);
+
+        verify(historyRepository).save(any(IncidentStatusHistory.class));
+        verify(eventPublisher).publishEvent(any(IncidentStatusChangedEvent.class));
+    }
+
+    @Test
     void ignoresIncompleteAnalysis() {
 
         Analysis analysis = completedAnalysis(
@@ -195,6 +257,7 @@ class IncidentGroupingServiceTest {
                 .upload(upload())
                 .user(user())
                 .rootCause("NULL_REFERENCE_ERROR")
+                .summary("Null pointer in auth flow")
                 .severityScore(SeverityScoreMapper.toEntityValue(severity))
                 .confidenceScore(
                         ConfidenceScoreMapper.toEntityValue(confidence)
