@@ -2,10 +2,15 @@ package com.loganalyzer.service;
 
 import com.loganalyzer.entity.Analysis;
 import com.loganalyzer.entity.Incident;
+import com.loganalyzer.entity.Incident.IncidentStatus;
+import com.loganalyzer.entity.IncidentStatusHistory;
+import com.loganalyzer.event.IncidentStatusChangedEvent;
 import com.loganalyzer.repository.AnalysisRepository;
 import com.loganalyzer.repository.IncidentRepository;
+import com.loganalyzer.repository.IncidentStatusHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -25,6 +30,8 @@ public class IncidentGroupingService {
 
     private final IncidentRepository incidentRepository;
     private final AnalysisRepository analysisRepository;
+    private final IncidentStatusHistoryRepository historyRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public void group(Analysis analysis) {
 
@@ -44,6 +51,8 @@ public class IncidentGroupingService {
         Incident targetIncident = existingIncident.orElseGet(() ->
                 incidentRepository.save(createIncident(analysis))
         );
+
+        reopenClosedIncidentIfNeeded(targetIncident, analysis);
 
         analysis.setIncident(targetIncident);
 
@@ -79,13 +88,48 @@ public class IncidentGroupingService {
                 .incidentId(UUID.randomUUID().toString())
                 .upload(analysis.getUpload())
                 .user(analysis.getUser())
+                .title(buildTitle(analysis.getRootCause()))
+                .status(IncidentStatus.OPEN)
                 .rootCause(analysis.getRootCause())
+                .rootCauseSummary(truncate(analysis.getSummary(), 1000))
                 .severityScore(safeSeverity(analysis.getSeverityScore()))
                 .confidenceScore(safeConfidence(analysis.getConfidenceScore()))
                 .occurrenceCount(1)
                 .firstSeen(firstSeen(analysis, now))
                 .lastSeen(now)
                 .build();
+    }
+
+    private void reopenClosedIncidentIfNeeded(
+            Incident incident,
+            Analysis analysis
+    ) {
+
+        if (incident.getStatus() != IncidentStatus.CLOSED) {
+            return;
+        }
+
+        IncidentStatus previousStatus = incident.getStatus();
+        incident.setStatus(IncidentStatus.OPEN);
+
+        historyRepository.save(
+                IncidentStatusHistory.builder()
+                        .incident(incident)
+                        .fromStatus(previousStatus)
+                        .toStatus(IncidentStatus.OPEN)
+                        .changedBy(analysis.getUser())
+                        .note("Incident reopened because a new matching occurrence was detected.")
+                        .build()
+        );
+
+        eventPublisher.publishEvent(
+                new IncidentStatusChangedEvent(
+                        analysis.getUser().getId(),
+                        incident.getIncidentId(),
+                        previousStatus.name(),
+                        IncidentStatus.OPEN.name()
+                )
+        );
     }
 
     private void recalculate(
@@ -199,5 +243,30 @@ public class IncidentGroupingService {
         return analysis.getCreatedAt() != null
                 ? analysis.getCreatedAt()
                 : fallback;
+    }
+
+    private String buildTitle(String rootCause) {
+        if (rootCause == null || rootCause.isBlank()) {
+            return "Unknown incident";
+        }
+
+        String readable = rootCause
+                .replace('_', ' ')
+                .toLowerCase();
+
+        return Character.toUpperCase(readable.charAt(0))
+                + readable.substring(1)
+                + " incident";
+    }
+
+    private String truncate(
+            String value,
+            int maxLength
+    ) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+
+        return value.substring(0, maxLength);
     }
 }

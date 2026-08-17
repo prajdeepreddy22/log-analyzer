@@ -11,7 +11,11 @@ public class IncidentResponse {
 
     private String incidentId;
     private String uploadId;
+    private Long logSourceId;
+    private String title;
+    private String status;
     private String rootCause;
+    private String rootCauseSummary;
     private Integer severityScore;
     private Double confidenceScore;
     private Integer occurrenceCount;

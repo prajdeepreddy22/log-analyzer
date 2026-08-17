@@ -2,6 +2,8 @@ package com.loganalyzer.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -45,11 +47,26 @@ public class Incident {
     private Upload upload;
 
     @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "log_source_id")
+    private LogIngestionSource logSource;
+
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @Column(nullable = false, length = 255)
+    private String title;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private IncidentStatus status = IncidentStatus.OPEN;
+
     @Column(name = "root_cause", nullable = false, length = 64)
     private String rootCause;
+
+    @Column(name = "root_cause_summary", length = 1000)
+    private String rootCauseSummary;
 
     @Column(name = "severity_score", nullable = false)
     private Byte severityScore;
@@ -79,4 +96,12 @@ public class Incident {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    public enum IncidentStatus {
+        OPEN,
+        INVESTIGATING,
+        FIXED,
+        VERIFIED,
+        CLOSED
+    }
 }
