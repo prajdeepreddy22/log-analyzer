@@ -1,6 +1,7 @@
 package com.loganalyzer.service;
 
 import com.loganalyzer.dto.ai.AIJobDto;
+import com.loganalyzer.dto.cache.CachedAnalysisResult;
 import com.loganalyzer.dto.response.AnalysisHistoryResponse;
 import com.loganalyzer.dto.response.AnalysisResponse;
 import com.loganalyzer.dto.response.AnalysisTriggerResponse;
@@ -38,6 +39,7 @@ public class AnalysisService {
     private final RateLimitService rateLimitService;
     private final MetricsService metricsService;
     private final ConfidenceScoreService confidenceScoreService;
+    private final AIAnalysisCacheService analysisCacheService;
 
     // =====================================================
     // MAIN ANALYSIS API
@@ -361,6 +363,43 @@ public class AnalysisService {
                 default:
                     break;
             }
+        }
+
+        Optional<CachedAnalysisResult> redisCached =
+                analysisCacheService.get(hash);
+
+        if (redisCached.isPresent()) {
+            Analysis cachedAnalysis = upsertAnalysis(upload, hash);
+
+            analysisCacheService.applyToAnalysis(
+                    redisCached.get(),
+                    cachedAnalysis
+            );
+
+            cachedAnalysis.setAnalysisStatus(
+                    Analysis.AnalysisStatus.COMPLETED
+            );
+            cachedAnalysis.setRetryCount(0);
+            cachedAnalysis.setErrorMessage(null);
+
+            analysisPersistenceService.save(cachedAnalysis);
+
+            metricsService
+                    .getCacheHitCounter()
+                    .increment();
+
+            log.info(
+                    "Redis cached analysis reused uploadId={} hash={}",
+                    uploadId,
+                    hash
+            );
+
+            return AnalysisTriggerResponse.builder()
+                    .status("CACHED")
+                    .message("Cached analysis reused")
+                    .uploadId(uploadId)
+                    .canForce(true)
+                    .build();
         }
 
         // =====================================================

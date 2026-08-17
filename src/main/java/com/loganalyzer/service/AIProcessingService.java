@@ -38,6 +38,7 @@ public class AIProcessingService {
     private final ConfidenceScoreService confidenceScoreService;
     private final MetricsService metricsService;
     private final ApplicationEventPublisher eventPublisher;
+    private final AIAnalysisCacheService analysisCacheService;
 
     // =========================================================
     // MAIN AI PROCESSING
@@ -202,6 +203,8 @@ public class AIProcessingService {
                 analysis.setErrorMessage(null);
 
                 analysisPersistenceService.save(analysis);
+
+                analysisCacheService.put(hash, analysis);
 
                 eventPublisher.publishEvent(
                         new AnalysisCompletedEvent(
