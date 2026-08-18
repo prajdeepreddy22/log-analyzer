@@ -11,18 +11,37 @@ import java.util.concurrent.TimeUnit;
 
 public class LogFileWatcher {
 
+    private static final long INITIAL_RETRY_DELAY_MILLIS = 1_000L;
+    private static final long MAX_RETRY_DELAY_MILLIS = 16_000L;
+
     private final WatcherConfig config;
     private final LogTailReader tailReader;
     private final LiveIngestionClient ingestionClient;
+    private final RetrySleeper retrySleeper;
 
     public LogFileWatcher(
             WatcherConfig config,
             LogTailReader tailReader,
             LiveIngestionClient ingestionClient
     ) {
+        this(
+                config,
+                tailReader,
+                ingestionClient,
+                Thread::sleep
+        );
+    }
+
+    LogFileWatcher(
+            WatcherConfig config,
+            LogTailReader tailReader,
+            LiveIngestionClient ingestionClient,
+            RetrySleeper retrySleeper
+    ) {
         this.config = config;
         this.tailReader = tailReader;
         this.ingestionClient = ingestionClient;
+        this.retrySleeper = retrySleeper;
     }
 
     public void run() throws IOException, InterruptedException {
@@ -85,16 +104,7 @@ public class LogFileWatcher {
                 state.lastReadByteOffset(),
                 config.batchSize()
         )) {
-            boolean sent = ingestionClient.send(config, batch.lines());
-
-            if (!sent) {
-                System.err.printf(
-                        "Ingestion failed for %d line(s); will retry from offset %d%n",
-                        batch.lines().size(),
-                        state.lastReadByteOffset()
-                );
-                return state;
-            }
+            sendWithRetry(batch, state.lastReadByteOffset());
 
             state = state.withOffset(batch.nextOffset());
             state.save(config.stateFile());
@@ -107,6 +117,34 @@ public class LogFileWatcher {
         }
 
         return state;
+    }
+
+    private void sendWithRetry(
+            LogTailReader.LineBatch batch,
+            long currentOffset
+    ) throws IOException, InterruptedException {
+
+        long delayMillis = INITIAL_RETRY_DELAY_MILLIS;
+
+        while (!Thread.currentThread().isInterrupted()) {
+            boolean sent = ingestionClient.send(config, batch.lines());
+
+            if (sent) {
+                return;
+            }
+
+            System.err.printf(
+                    "Ingestion failed for %d line(s); retrying from offset %d in %d ms%n",
+                    batch.lines().size(),
+                    currentOffset,
+                    delayMillis
+            );
+
+            retrySleeper.sleep(delayMillis);
+            delayMillis = Math.min(delayMillis * 2, MAX_RETRY_DELAY_MILLIS);
+        }
+
+        throw new InterruptedException("Watcher interrupted while retrying ingestion");
     }
 
     private void validateFile() throws IOException {
@@ -143,5 +181,10 @@ public class LogFileWatcher {
         }
 
         return false;
+    }
+
+    @FunctionalInterface
+    interface RetrySleeper {
+        void sleep(long millis) throws InterruptedException;
     }
 }

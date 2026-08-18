@@ -53,15 +53,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             String username = jwtService.extractUsername(jwt);
-            Long userId = jwtService.extractUserId(jwt); // ✅ IMPORTANT
+            Long userId = jwtService.extractUserId(jwt);
 
             if (username != null &&
                     SecurityContextHolder.getContext().getAuthentication() == null) {
 
-                UserDetails userDetails =
-                        userDetailsService.loadUserByUsername(username);
+                UserDetails userDetails = userId == null
+                        ? userDetailsService.loadUserByUsername(username)
+                        : userDetailsService.loadUserById(userId);
 
-                if (jwtService.isTokenValid(jwt, userDetails)) {
+                boolean tokenValid = userId == null
+                        ? jwtService.isTokenValid(jwt, userDetails)
+                        : jwtService.isTokenValidForUserId(jwt, userId);
+
+                if (tokenValid) {
 
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(
@@ -76,14 +81,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext()
                             .setAuthentication(authToken);
 
-                    // ✅ CRITICAL FOR USER ISOLATION
                     if (userId != null) {
                         request.setAttribute("userId", userId);
                     }
 
-                    request.setAttribute("username", username);
+                    request.setAttribute("username", userDetails.getUsername());
 
-                    log.debug("Authenticated user: {}", username);
+                    log.debug("Authenticated user: {}", userDetails.getUsername());
                 }
             }
         } catch (Exception e) {

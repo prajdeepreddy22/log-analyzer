@@ -25,4 +25,18 @@ class WatcherConfigTest {
         assertThat(config.batchSize()).isEqualTo(500);
         assertThat(config.pollMillis()).isEqualTo(100L);
     }
+
+    @Test
+    void usesFiveHundredMillisecondFlushPollByDefault() {
+
+        WatcherConfig config = WatcherConfig.fromArgs(new String[]{
+                "--file", "app.log",
+                "--backend-url", "http://localhost:8080",
+                "--token", "token",
+                "--source-id", "12"
+        });
+
+        assertThat(config.batchSize()).isEqualTo(100);
+        assertThat(config.pollMillis()).isEqualTo(500L);
+    }
 }

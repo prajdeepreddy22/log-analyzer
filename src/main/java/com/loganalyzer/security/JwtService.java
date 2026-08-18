@@ -55,6 +55,13 @@ public class JwtService {
                 && !isTokenExpired(token);
     }
 
+    public boolean isTokenValidForUserId(String token, Long userId) {
+        Long tokenUserId = extractUserId(token);
+        return userId != null
+                && userId.equals(tokenUserId)
+                && !isTokenExpired(token);
+    }
+
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
     }

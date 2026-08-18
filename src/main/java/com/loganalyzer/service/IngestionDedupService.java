@@ -38,8 +38,14 @@ public class IngestionDedupService {
         return sha256(joiner.toString());
     }
 
-    public boolean isDuplicate(String batchHash) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(key(batchHash)));
+    public boolean claimBatch(String batchHash) {
+        return Boolean.TRUE.equals(
+                redisTemplate.opsForValue().setIfAbsent(
+                        key(batchHash),
+                        "processing",
+                        Duration.ofMinutes(dedupTtlMinutes)
+                )
+        );
     }
 
     public void markProcessed(String batchHash) {
@@ -48,6 +54,10 @@ public class IngestionDedupService {
                 "processed",
                 Duration.ofMinutes(dedupTtlMinutes)
         );
+    }
+
+    public void releaseBatch(String batchHash) {
+        redisTemplate.delete(key(batchHash));
     }
 
     private String key(String batchHash) {

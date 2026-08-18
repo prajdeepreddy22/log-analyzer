@@ -26,6 +26,10 @@ public class SseEmitterRegistry {
         emitters.computeIfAbsent(userId, ignored -> new CopyOnWriteArrayList<>())
                 .add(emitter);
 
+        log.debug("Registered SSE emitter userId={} activeEmitters={}",
+                userId,
+                activeCount(userId));
+
         Runnable cleanup = () -> remove(userId, emitter);
         emitter.onCompletion(cleanup);
         emitter.onTimeout(cleanup);
@@ -48,8 +52,16 @@ public class SseEmitterRegistry {
         List<SseEmitter> userEmitters = emitters.get(userId);
 
         if (userEmitters == null || userEmitters.isEmpty()) {
+            log.debug("No SSE emitters registered userId={} event={}",
+                    userId,
+                    eventName);
             return;
         }
+
+        log.debug("Sending SSE event userId={} event={} emitters={}",
+                userId,
+                eventName,
+                userEmitters.size());
 
         RealtimeEventResponse event =
                 RealtimeEventResponse.of(eventName, payload);
@@ -100,5 +112,9 @@ public class SseEmitterRegistry {
         if (userEmitters.isEmpty()) {
             emitters.remove(userId);
         }
+
+        log.debug("Removed SSE emitter userId={} activeEmitters={}",
+                userId,
+                activeCount(userId));
     }
 }

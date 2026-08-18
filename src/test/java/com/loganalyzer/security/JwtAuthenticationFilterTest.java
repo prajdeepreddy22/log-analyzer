@@ -30,10 +30,10 @@ class JwtAuthenticationFilterTest {
                 .roles("USER")
                 .build();
 
-        when(jwtService.extractUsername("token-123")).thenReturn("raj2122");
+        when(jwtService.extractUsername("token-123")).thenReturn("Raj2122");
         when(jwtService.extractUserId("token-123")).thenReturn(1L);
-        when(userDetailsService.loadUserByUsername("raj2122")).thenReturn(userDetails);
-        when(jwtService.isTokenValid("token-123", userDetails)).thenReturn(true);
+        when(userDetailsService.loadUserById(1L)).thenReturn(userDetails);
+        when(jwtService.isTokenValidForUserId("token-123", 1L)).thenReturn(true);
 
         MockHttpServletRequest request =
                 new MockHttpServletRequest("GET", "/api/chat/stream");
@@ -66,10 +66,10 @@ class JwtAuthenticationFilterTest {
                 .roles("USER")
                 .build();
 
-        when(jwtService.extractUsername("token-123")).thenReturn("raj2122");
+        when(jwtService.extractUsername("token-123")).thenReturn("Raj2122");
         when(jwtService.extractUserId("token-123")).thenReturn(1L);
-        when(userDetailsService.loadUserByUsername("raj2122")).thenReturn(userDetails);
-        when(jwtService.isTokenValid("token-123", userDetails)).thenReturn(true);
+        when(userDetailsService.loadUserById(1L)).thenReturn(userDetails);
+        when(jwtService.isTokenValidForUserId("token-123", 1L)).thenReturn(true);
 
         MockHttpServletRequest request =
                 new MockHttpServletRequest("GET", "/api/events/stream");

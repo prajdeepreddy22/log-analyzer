@@ -6,9 +6,14 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Queue;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LogFileWatcherTest {
 
@@ -16,7 +21,8 @@ class LogFileWatcherTest {
     private Path tempDir;
 
     @Test
-    void advancesOffsetOnlyAfterSuccessfulSend() throws Exception {
+    void retriesWithBackoffAndAdvancesOffsetAfterSuccessfulSend()
+            throws Exception {
 
         Path logFile = tempDir.resolve("app.log");
         Path stateFile = tempDir.resolve(".aeip-watcher-state.json");
@@ -33,36 +39,69 @@ class LogFileWatcherTest {
         );
         WatcherState initialState = new WatcherState(logFile, 12L, 0L);
 
-        LogFileWatcher failingWatcher = new LogFileWatcher(
+        SequenceIngestionClient ingestionClient =
+                new SequenceIngestionClient(false, false, true);
+
+        List<Long> sleeps = new ArrayList<>();
+
+        LogFileWatcher watcher = new LogFileWatcher(
                 config,
                 new LogTailReader(),
-                new StubIngestionClient(false)
-        );
-
-        WatcherState failedState =
-                failingWatcher.drainAvailableLines(initialState);
-
-        assertThat(failedState.lastReadByteOffset()).isZero();
-
-        LogFileWatcher successfulWatcher = new LogFileWatcher(
-                config,
-                new LogTailReader(),
-                new StubIngestionClient(true)
+                ingestionClient,
+                sleeps::add
         );
 
         WatcherState successfulState =
-                successfulWatcher.drainAvailableLines(initialState);
+                watcher.drainAvailableLines(initialState);
 
         assertThat(successfulState.lastReadByteOffset())
                 .isEqualTo(Files.size(logFile));
+        assertThat(ingestionClient.attempts()).isEqualTo(3);
+        assertThat(sleeps).containsExactly(1_000L, 2_000L);
     }
 
-    private static class StubIngestionClient extends LiveIngestionClient {
+    @Test
+    void doesNotAdvanceOffsetWhenRetryIsInterruptedAfterFailure()
+            throws Exception {
 
-        private final boolean success;
+        Path logFile = tempDir.resolve("app.log");
+        Path stateFile = tempDir.resolve(".aeip-watcher-state.json");
+        Files.writeString(logFile, "line-1\n");
 
-        private StubIngestionClient(boolean success) {
-            this.success = success;
+        WatcherConfig config = new WatcherConfig(
+                logFile,
+                "http://localhost:8080",
+                "token",
+                12L,
+                stateFile,
+                100,
+                500L
+        );
+        WatcherState initialState = new WatcherState(logFile, 12L, 0L);
+
+        LogFileWatcher watcher = new LogFileWatcher(
+                config,
+                new LogTailReader(),
+                new SequenceIngestionClient(false),
+                millis -> {
+                    throw new InterruptedException("stop test retry");
+                }
+        );
+
+        assertThatThrownBy(() -> watcher.drainAvailableLines(initialState))
+                .isInstanceOf(InterruptedException.class)
+                .hasMessageContaining("stop test retry");
+
+        assertThat(Files.exists(stateFile)).isFalse();
+    }
+
+    private static class SequenceIngestionClient extends LiveIngestionClient {
+
+        private final Queue<Boolean> results;
+        private int attempts;
+
+        private SequenceIngestionClient(Boolean... results) {
+            this.results = new ArrayDeque<>(Arrays.asList(results));
         }
 
         @Override
@@ -70,7 +109,18 @@ class LogFileWatcherTest {
                 WatcherConfig config,
                 List<String> lines
         ) throws IOException {
-            return success;
+
+            attempts++;
+
+            if (results.isEmpty()) {
+                return true;
+            }
+
+            return results.remove();
+        }
+
+        private int attempts() {
+            return attempts;
         }
     }
 }

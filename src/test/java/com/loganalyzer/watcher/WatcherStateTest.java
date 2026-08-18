@@ -36,4 +36,52 @@ class WatcherStateTest {
 
         assertThat(state.lastReadByteOffset()).isEqualTo(4L);
     }
+
+    @Test
+    void startsAtCurrentEndWhenStateFileDoesNotExist() throws Exception {
+
+        Path logFile = tempDir.resolve("app.log");
+        Path stateFile = tempDir.resolve(".aeip-watcher-state.json");
+        Files.writeString(logFile, "existing\n");
+
+        WatcherConfig config = new WatcherConfig(
+                logFile,
+                "http://localhost:8080",
+                "token",
+                12L,
+                stateFile,
+                100,
+                500L
+        );
+
+        WatcherState state = WatcherState.loadOrStartAtEnd(config);
+
+        assertThat(state.lastReadByteOffset())
+                .isEqualTo(Files.size(logFile));
+    }
+
+    @Test
+    void startsAtCurrentEndWhenStateFileDoesNotMatchSource() throws Exception {
+
+        Path logFile = tempDir.resolve("app.log");
+        Path stateFile = tempDir.resolve(".aeip-watcher-state.json");
+        Files.writeString(logFile, "existing\n");
+
+        new WatcherState(logFile, 99L, 0L).save(stateFile);
+
+        WatcherConfig config = new WatcherConfig(
+                logFile,
+                "http://localhost:8080",
+                "token",
+                12L,
+                stateFile,
+                100,
+                500L
+        );
+
+        WatcherState state = WatcherState.loadOrStartAtEnd(config);
+
+        assertThat(state.lastReadByteOffset())
+                .isEqualTo(Files.size(logFile));
+    }
 }
