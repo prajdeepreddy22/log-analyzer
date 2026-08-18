@@ -153,6 +153,9 @@ storage:
 
 # ==================== AEIP PHASE 2 ====================
 aeip:
+  redis:
+    required: ${AEIP_REDIS_REQUIRED:true}
+
   ingest:
     dedup-ttl-minutes: ${AEIP_INGEST_DEDUP_TTL_MINUTES:5}
 

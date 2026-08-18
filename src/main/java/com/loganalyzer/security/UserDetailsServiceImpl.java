@@ -39,4 +39,23 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                         "ROLE_" + user.getRole().name())))
                 .build();
     }
+
+    @Transactional(readOnly = true)
+    public UserDetails loadUserById(Long userId)
+            throws UsernameNotFoundException {
+
+        log.debug("Loading user by id: {}", userId);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException(
+                        "User not found with id: " + userId));
+
+        return org.springframework.security.core.userdetails.User
+                .builder()
+                .username(user.getUsername())
+                .password(user.getPassword())
+                .authorities(List.of(new SimpleGrantedAuthority(
+                        "ROLE_" + user.getRole().name())))
+                .build();
+    }
 }

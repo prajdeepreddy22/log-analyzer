@@ -226,7 +226,18 @@ class IncidentGroupingServiceTest {
 
         assertThat(incident.getStatus()).isEqualTo(IncidentStatus.OPEN);
 
-        verify(historyRepository).save(any(IncidentStatusHistory.class));
+        ArgumentCaptor<IncidentStatusHistory> historyCaptor =
+                ArgumentCaptor.forClass(IncidentStatusHistory.class);
+
+        verify(historyRepository).save(historyCaptor.capture());
+
+        IncidentStatusHistory history = historyCaptor.getValue();
+
+        assertThat(history.getFromStatus()).isEqualTo(IncidentStatus.CLOSED);
+        assertThat(history.getToStatus()).isEqualTo(IncidentStatus.OPEN);
+        assertThat(history.getNote())
+                .isEqualTo("Incident reopened because a new matching occurrence was detected.");
+
         verify(eventPublisher).publishEvent(any(IncidentStatusChangedEvent.class));
     }
 

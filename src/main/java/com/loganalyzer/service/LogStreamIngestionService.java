@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -59,7 +61,7 @@ public class LogStreamIngestionService {
 
         String batchHash = ingestionDedupService.computeBatchHash(userId, request);
 
-        if (ingestionDedupService.isDuplicate(batchHash)) {
+        if (!ingestionDedupService.claimBatch(batchHash)) {
             return LiveIngestionResponse.builder()
                     .sourceId(source.getId())
                     .acceptedLines(0)
@@ -70,41 +72,46 @@ public class LogStreamIngestionService {
                     .build();
         }
 
-        Upload upload = resolveInternalUpload(source);
-        List<ParsedLogEntry> parsedLogs = parseLines(request.getLines());
+        try {
+            Upload upload = resolveInternalUpload(source);
+            List<ParsedLogEntry> parsedLogs = parseLines(request.getLines());
 
-        List<Log> logs = parsedLogs.stream()
-                .map(entry -> toLog(upload, entry))
-                .toList();
+            List<Log> logs = parsedLogs.stream()
+                    .map(entry -> toLog(upload, entry))
+                    .toList();
 
-        logRepository.saveAll(logs);
-        updateUploadCounters(upload, logs);
+            logRepository.saveAll(logs);
+            updateUploadCounters(upload, logs);
 
-        source.setLastIngestedAt(LocalDateTime.now());
-        sourceRepository.save(source);
+            source.setLastIngestedAt(LocalDateTime.now());
+            sourceRepository.save(source);
 
-        ingestionDedupService.markProcessed(batchHash);
+            completeDedupAfterCommit(batchHash);
 
-        eventPublisher.publishEvent(
-                new LogIngestedEvent(userId, source.getId(), logs.size())
-        );
+            eventPublisher.publishEvent(
+                    new LogIngestedEvent(userId, source.getId(), logs.size())
+            );
 
-        log.info(
-                "Live ingestion accepted userId={} sourceId={} uploadId={} count={}",
-                userId,
-                source.getId(),
-                upload.getUploadId(),
-                logs.size()
-        );
+            log.info(
+                    "Live ingestion accepted userId={} sourceId={} uploadId={} count={}",
+                    userId,
+                    source.getId(),
+                    upload.getUploadId(),
+                    logs.size()
+            );
 
-        return LiveIngestionResponse.builder()
-                .sourceId(source.getId())
-                .acceptedLines(request.getLines().size())
-                .processedLines(logs.size())
-                .duplicate(false)
-                .uploadId(upload.getUploadId())
-                .message("Log batch accepted")
-                .build();
+            return LiveIngestionResponse.builder()
+                    .sourceId(source.getId())
+                    .acceptedLines(request.getLines().size())
+                    .processedLines(logs.size())
+                    .duplicate(false)
+                    .uploadId(upload.getUploadId())
+                    .message("Log batch accepted")
+                    .build();
+        } catch (RuntimeException exception) {
+            ingestionDedupService.releaseBatch(batchHash);
+            throw exception;
+        }
     }
 
     private List<ParsedLogEntry> parseLines(List<String> lines) {
@@ -116,6 +123,30 @@ public class LogStreamIngestionService {
         } catch (Exception exception) {
             throw new ConflictException("Log batch could not be parsed");
         }
+    }
+
+    private void completeDedupAfterCommit(String batchHash) {
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            ingestionDedupService.markProcessed(batchHash);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        ingestionDedupService.markProcessed(batchHash);
+                    }
+
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) {
+                            ingestionDedupService.releaseBatch(batchHash);
+                        }
+                    }
+                }
+        );
     }
 
     private Upload resolveInternalUpload(LogIngestionSource source) {

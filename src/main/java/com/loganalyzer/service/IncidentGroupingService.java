@@ -109,6 +109,8 @@ public class IncidentGroupingService {
             return;
         }
 
+        // A fresh matching occurrence means the same production issue has
+        // returned, so keep the incident identity and reopen it with history.
         IncidentStatus previousStatus = incident.getStatus();
         incident.setStatus(IncidentStatus.OPEN);
 
